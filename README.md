@@ -1,352 +1,227 @@
 # ASCII Tactical
 
-Un juego de disparos táctico multijugador estilo **Counter-Strike 2**, completamente renderizado en ASCII en la terminal. Desarrollado con **Node.js puro** sin dependencias externas, combina mecánicas de juego clásicas con una estética retro y minimalista.
-
-## 🎮 Características principales
-
-- **Gameplay competitivo**: Dos equipos (Terroristas vs Contra-terroristas) compiten en rondas tácticas
-- **Sistema de economía**: Gana dinero por eliminar enemigos, plantar/desactivar bombas y ganar rondas. Usa el dinero para comprar mejores armas y equipo
-- **Mecánicas de combate realistas**: Línea de visión mediante raycasting, armas con alcance y munición limitada, armadura que absorbe daño
-- **Servidor autoridad**: Arquitectura cliente-servidor TCP. El servidor valida cada acción
-- **Multijugador local**: 2-10 jugadores en la misma red WiFi
-- **Interfaz en terminal**: UI en tiempo real mostrando mapa, inventario, estadísticas y eventos
+A fun multiplayer tactical shooter in your terminal. Think Counter-Strike but in ASCII art. Pure Node.js, no complicated setup.
 
 ---
 
-## ⚙️ Requisitos
+## What is this?
 
-- **Node.js** versión 14 o superior
-- **Terminal/CMD** con soporte ANSI (cualquier terminal moderna funciona)
-- **Misma red WiFi** para jugar con amigos (o misma PC para pruebas)
+Two teams fight it out:
+- **Terrorists** try to plant a bomb at site A or B
+- **Counter-Terrorists** try to stop them and defuse the bomb
 
-[Descargar Node.js](https://nodejs.org)
+You earn money by eliminating enemies and winning rounds. Buy better weapons, armor, and medical kits. Simple as that.
 
 ---
 
-## 📥 Instalación
+## Quick Start (2 minutes)
 
-### 1. Clona o descarga el proyecto
+### Need:
+- Node.js installed ([get it here](https://nodejs.org))
+- A terminal
+- Friends on the same WiFi (or just test solo on one PC)
 
+### Step 1: Get the code
 ```bash
-git clone https://github.com/tuusuario/ascii-tactical.git
+git clone https://github.com/yourusername/ascii-tactical.git
 cd ascii-tactical
 ```
 
-O descarga el ZIP y extrae.
-
-### 2. No necesitas instalar dependencias
-
-Este proyecto **no tiene dependencias externas**. Node.js viene con todo lo necesario.
-
----
-
-## 🚀 Cómo jugar
-
-### Opción A: Mismo PC (para probar)
-
-**Terminal 1 - Inicia el servidor:**
+### Step 2: Start the server
 ```bash
 npm run server
 ```
 
-**Terminal 2 - Primer jugador:**
+### Step 3: Connect as a player
+Open **another terminal window** and run:
 ```bash
 npm run client
 ```
 
-**Terminal 3 - Segundo jugador:**
-```bash
-npm run client
-```
-
-Ambos se conectan a `localhost` automáticamente.
+Do this for each player. That's it!
 
 ---
 
-### Opción B: Diferentes PCs en la misma WiFi (recomendado)
+## Playing with Friends (Different PCs)
 
-#### Paso 1: Encuentra la IP del servidor
+### Find your server's IP
 
-**Windows (PowerShell):**
-```powershell
+**Windows:**
+Open PowerShell and type:
+```
 ipconfig
 ```
-Busca `IPv4 Address` (ej: `192.168.0.50`)
+Look for `IPv4 Address` (something like `192.168.0.50`)
 
-**Mac/Linux (Terminal):**
-```bash
+**Mac/Linux:**
+Open Terminal and type:
+```
 ifconfig
 ```
-Busca `inet` (ej: `192.168.0.50`)
+Look for `inet` (something like `192.168.0.50`)
 
-#### Paso 2: Una persona inicia el servidor
-
-En la PC del servidor:
+### One person starts the server
 ```bash
 npm run server
 ```
 
-Verá:
-```
-=== ASCII TACTICAL SERVER ===
-Escuchando en puerto 7777
-Mínimo 2 jugadores para iniciar
-```
-
-#### Paso 3: Los demás se conectan
-
-En cada otra PC, reemplaza `192.168.0.50` con la IP del servidor:
-
+### Everyone else connects to that IP
 ```bash
-node index.js 192.168.0.50 "Tu Nombre" auto
+node index.js 192.168.0.50 "YourName" auto
 ```
 
-Ejemplos:
-```bash
-node index.js 192.168.0.50 "Jugador1" T
-node index.js 192.168.0.50 "Jugador2" CT
-node index.js 192.168.0.50 "Jugador3" auto
-```
-
-**Parámetros:**
-- `192.168.0.50` → IP del servidor (tu máquina local)
-- `"Tu Nombre"` → Tu nombre en el juego (máx 16 caracteres)
-- `auto` / `T` / `CT` → Equipo preferido (auto = asignación automática)
+Replace `192.168.0.50` with the actual IP from above. That's it!
 
 ---
 
-## 🎮 Cómo se juega
+## How to Play
 
-### Objetivo del juego
+### Controls
+```
+W/A/S/D  → Move
+Q/E      → Turn left/right
+SPACE    → Shoot
+R        → Reload
+1/2/3    → Switch weapon
+B        → Buy stuff (only during buy phase)
+F        → Plant/defuse bomb
+TAB      → See everyone's score
+Ctrl+C   → Quit
+```
 
-**Terroristas (T):**
-- Uno de ustedes tiene la bomba (*)
-- Deben plantarla en el sitio A o B
-- Defender la bomba hasta que explote (30 segundos después de plantarla)
+### Terrorists (Red team)
+1. One of you has the bomb
+2. Carry it to site A or B (marked on the map)
+3. Press F to plant it (takes 3 seconds)
+4. Defend it for 30 seconds until it explodes
+5. **WIN** = Bomb explodes or all Counter-Terrorists are dead
 
-**Contra-Terroristas (CT):**
-- Defender los sitios A y B
-- Desactivar la bomba si es plantada
-- Eliminar a todos los Terroristas
-
-### Fases de una ronda
-
-1. **Fase de compra (20 segundos)**
-   - Todos los jugadores compran armas y equipo
-   - Mínimo 2 jugadores para comenzar
-   - Cuenta regresiva de 50 segundos desde que hay suficientes jugadores
-
-2. **Fase de combate (150 segundos máximo)**
-   - Los jugadores se mueven y luchan
-   - Los Terroristas pueden plantar la bomba
-   - Los Contra-Terroristas pueden desactivarla
-   - Si la bomba se planta, cuenta regresiva de 30 segundos
-
-3. **Fase de resultado (5 segundos)**
-   - Se muestra quién ganó la ronda
-   - Se reparten recompensas de dinero
-   - Comienza la siguiente ronda
-
-### Sistema de economía
-
-**Ganas dinero por:**
-- Eliminar un enemigo: +$300
-- Plantar la bomba: +$400
-- Desactivar la bomba: +$400
-- Ganar una ronda (tu equipo): +$3200
-- Perder una ronda (tu equipo): +$1400
-
-**Dinero inicial:** $800 por ronda
-
-**Dinero máximo:** $16,000
-
-### Armas y equipo
-
-**Armas (presiona números 1/2/3 para cambiar):**
-
-| Arma | Precio | Daño | Alcance | Munición | Recarga | Cadencia |
-|------|--------|------|---------|----------|---------|----------|
-| Pistola | $500 | 15 | 15 tiles | 12/60 | 1.5s | 0.4s |
-| Rifle | $2500 | 30 | 25 tiles | 30/90 | 2.2s | 0.6s |
-| Sniper | $4700 | 85 | 40 tiles | 5/30 | 3s | 1.5s |
-
-**Equipo:**
-- **Chaleco**: $1000 → +50 armadura (absorbe la mitad del daño)
-- **Botiquín**: $400 → +50 salud (máx 100)
+### Counter-Terrorists (Cyan team)
+1. Guard sites A and B
+2. Stop Terrorists from planting the bomb
+3. If they plant it, go to the bomb and press F to defuse it (takes 5 seconds)
+4. **WIN** = Defuse the bomb or kill all Terrorists
 
 ---
 
-## ⌨️ Controles
+## Economy System
 
-| Tecla | Acción |
-|-------|--------|
-| **W / A / S / D** | Mover (arriba, izquierda, abajo, derecha) |
-| **Q / E** | Rotar vista (izquierda / derecha) |
-| **ESPACIO** | Disparar |
-| **R** | Recargar arma |
-| **1 / 2 / 3** | Cambiar arma (si la tienes) |
-| **B** | Abrir/cerrar tienda (solo en fase de compra) |
-| **F** | Plantar bomba (Terroristas) / Desactivar bomba (Contra-terroristas) |
-| **TAB** | Ver estadísticas de todos los jugadores |
-| **Ctrl + C** | Salir del juego |
+**Earn money by:**
+- Killing an enemy: +$300
+- Planting the bomb: +$400
+- Defusing the bomb: +$400
+- Your team wins a round: +$3200
+- Your team loses a round: +$1400
 
----
+**You start with:** $800 per round
 
-## 🎯 Guía de estrategia
+**Use it to buy:**
 
-### Para Terroristas
-
-1. **Organiza tu equipo**
-   - El portador de la bomba es la prioridad máxima
-   - Los demás lo protegen en el camino a A o B
-
-2. **Elige sitio**
-   - Sitio A: arriba a la izquierda
-   - Sitio B: arriba a la derecha
-   - Coordina con tu equipo antes de ir
-
-3. **Planta la bomba**
-   - Llega al sitio con el portador
-   - Presiona F para comenzar a plantar (3 segundos)
-   - No te muevas mientras plantas
-   - Una vez plantada, defiende por 30 segundos
-
-4. **Economía**
-   - Si pierdes muchas rondas, tienes poco dinero
-   - A veces es mejor hacer "eco" (comprar poco) para ahorrar
-
-### Para Contra-Terroristas
-
-1. **Posiciónate defensivamente**
-   - Cubre ambos sitios (A y B)
-   - Mantén línea de visión a los Terroristas
-
-2. **Elimina la amenaza**
-   - Identifica quién tiene la bomba (en el HUD)
-   - Prioriza al portador
-
-3. **Desactiva si es necesario**
-   - Si plantan en tu sitio, acércate
-   - Presiona F para desactivar (5 segundos)
-   - Protege al desactivador
+| Item | Price | What it does |
+|------|-------|------|
+| Pistol | $500 | Basic gun |
+| Rifle | $2,500 | Good gun, medium range |
+| Sniper | $4,700 | Powerful, long range |
+| Armor | $1,000 | Takes 50% of damage |
+| Medkit | $400 | Heals you 50 HP |
 
 ---
 
-## 📊 Interfaz del juego
-
-### HUD (Cabeza arriba)
+## The Map
 
 ```
-[RONDA 1/16] T 3/3  CT 3/3  Marcador T 0:0 CT  Fase: COMBATE  Tiempo: 2:30
-
-[YO] Tu Nombre (T)  Salud 100/100  Armadura 50  VIVO
-Arma Rifle  Munición 25/90  Pos (15,10)  Mirada N ^  Dinero $2500
-Objetivo: PLANTA LA BOMBA EN A o B (F)
-
-— TIENDA — (cierra con B)
-  [1] Pistola $500   [2] Rifle $2500   [3] Sniper $4700
-  [4] Chaleco $1000   [5] Botiquin $400
-
-— Eventos —
-  [KILL] Jugador1 eliminó a Jugador2 con Rifle
-  [BOMBA] Jugador1 comienza a plantar en A...
-  
-— Estadísticas —
-  Jugador1        T   K 2  D 1  Salud 85   Rifle    $1200  <- yo
-  Jugador2        CT  K 0  D 2  Salud 0    Pistola  $800
-  Jugador3        CT  K 1  D 1  Salud 100  Rifle    $2100
+A = Bomb site (top left)
+B = Bomb site (top right)
+# = Walls (can't walk through)
+~ = Water (can't walk through)
+| or = = Obstacles (you can hide behind)
+T = You or a teammate
+C = Enemy Counter-Terrorist
+* = The planted bomb
 ```
-
-### Mapa
-
-```
-##############################
-#............................#
-#............................#
-#............................#
-#......#####.......#####.....#
-#......#...#.......#...#.....#
-#...A..#...#.......#...#..B..#
-#......#...#.......#...#.....#
-#......#####.......#####.....#
-#............................#
-#............~~~~............#
-#............~~~~............#
-#............................#
-#......===.........===.......#
-#............................#
-#............................#
-#............................#
-#............................#
-#............................#
-##############################
-```
-
-**Leyenda:**
-- `#` = Pared (bloquea movimiento y visión)
-- `.` = Piso (transitable)
-- `A` / `B` = Sitios de bomba
-- `~` = Agua (bloquea movimiento, no visión)
-- `|` / `=` = Cobertura (bloquea movimiento y visión)
-- `T` = Terrorista (rojo)
-- `C` = Contra-Terrorista (cian)
-- `*` = Bomba
 
 ---
 
-## 🐛 Troubleshooting
+## Strategy Tips
 
-### "No se pudo conectar al servidor"
-- Verifica que el servidor esté corriendo (`npm run server`)
-- Comprueba la IP correcta con `ipconfig` (Windows) o `ifconfig` (Mac/Linux)
-- Asegúrate de estar en la misma red WiFi
+**For Terrorists:**
+- Stick together, don't go alone
+- Protect the bomb carrier
+- Plant the bomb and camp it
 
-### "Este cliente necesita ejecutarse en una terminal interactiva"
-- No puedes jugar en IDEs como VS Code integrado
-- Abre una terminal/CMD normal: PowerShell, Git Bash, Terminal, etc.
-
-### El juego se ve roto/confuso
-- Agranda la ventana de la terminal (necesita ~100x30 caracteres mínimo)
-- Usa una terminal moderna (Windows Terminal, iTerm2, GNOME Terminal, etc.)
-
-### Lag o desincronización
-- Asegúrate de buena conexión WiFi
-- El servidor debe estar en una máquina estable
-- No ejecutes programas pesados simultáneamente
+**For Counter-Terrorists:**
+- Cover both sites (split your team)
+- Listen for footsteps (watch the event log)
+- If they plant, rush to defuse
 
 ---
 
-## 📝 Configuración avanzada
+## Common Problems
 
-Puedes editar `src/config.js` para cambiar:
+### "Can't connect to server"
+- Make sure the server is running (`npm run server`)
+- Check you have the right IP address
+- Make sure you're on the same WiFi
 
-**Armas:**
-```javascript
-const WEAPONS = {
-  pistol: { range: 15, damage: 15, magazine: 12, ... },
-  rifle:  { range: 25, damage: 30, magazine: 30, ... },
-  sniper: { range: 40, damage: 85, magazine: 5, ... },
-};
+### "Terminal looks broken"
+- Make a your terminal window bigger
+- Use a modern terminal (Windows Terminal, iTerm2, etc.)
+
+### "Someone's name is cut off / stuff looks weird"
+- Expand your terminal window a bit more
+
+---
+
+## Game Flow
+
+1. **Waiting Room (Lobby)**
+   - Wait until 2+ players join
+   - Countdown starts at 50 seconds
+
+2. **Buy Phase (20 seconds)**
+   - Everyone buys weapons and gear
+   - Press B to open the shop
+
+3. **Combat Phase (up to 150 seconds)**
+   - Terrorists try to plant
+   - Counter-Terrorists try to stop them
+   - Shoot, move, reload
+
+4. **Result Phase (5 seconds)**
+   - See who won the round
+   - Get your money reward
+   - Next round starts
+
+5. **Match Over**
+   - First to 9 wins (best of 16 rounds)
+   - Game ends, you can quit
+
+---
+
+## Want to Change Things?
+
+Edit `src/config.js` to:
+- Change weapon damage/range
+- Adjust starting money
+- Tweak bomb timer (currently 30 seconds)
+- Change bomb plant time (currently 3 seconds)
+
+---
+
+## What's Inside
+
+```
+ascii-tactical/
+├── index.js          ← Client (you run this to play)
+├── server.js         ← Server (runs the game)
+├── src/
+│   ├── game.js       (core game logic)
+│   ├── combat.js     (shooting, damage, etc.)
+│   ├── map.js        (the map)
+│   ├── player.js     (player stuff)
+│   ├── render.js     (drawing to terminal)
+│   └── config.js     (settings to tweak)
+└── package.json      (project info)
 ```
 
-**Economía:**
-```javascript
-const ECONOMY = {
-  startMoney: 800,
-  killReward: 300,
-  plantReward: 400,
-  // ... más opciones
-};
-```
-
-**Tiempos de ronda:**
-```javascript
-const ROUND = {
-  buyTimeMs: 20000,      // 20 segundos para comprar
-  combatTimeMs: 150000,  // 150 segundos de combate
-  bombFuseMs: 30000,     // 30 segundos para que explote
-};
-```
-Diviértete jugando! 🎮**
-
-Para reportar bugs o sugerencias, abre un issue en GitHub.
+Have fun!
