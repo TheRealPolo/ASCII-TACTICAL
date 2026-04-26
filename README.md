@@ -12,3 +12,4 @@ A not fun local multiplayer tactical shooter in your terminal. Think Counter-Str
 - **Integrated scoreboard** — K/D and HP for all players visible at all times
 - **Server logs** — colored output with timestamps and event labels (JOIN, LEAVE, GAME, MATCH)
 - **Fixed text overflow** — long event messages and player names are now clamped to fit the frame
+- **AIM RAYCAST** — aim raycast cuh...

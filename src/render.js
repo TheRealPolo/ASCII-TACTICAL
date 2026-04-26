@@ -9,7 +9,10 @@
  * Frame height: 24 rows    (1 top + 1 header + 1 sep + 20 map + 1 bottom)
  */
 
-const { WEAPONS, EQUIPMENT } = require('./config');
+const { WEAPONS, EQUIPMENT, DIRECTIONS } = require('./config');
+
+// Directional glyph for the aim-line overlay (matches DIRECTIONS index 0–7)
+const AIM_GLYPHS = ['|', '/', '-', '\\', '|', '/', '-', '\\'];
 
 const E = '\x1b';
 
@@ -82,9 +85,48 @@ function colorTile(c) {
   }
 }
 
+// ─── Aim-line raycast (visual targeting reticle) ─────────────────────────────
+// Walks the local player's facing direction tile-by-tile, stopping when it
+// hits a wall, cover, an enemy, or runs out of range.
+//
+// Returns: { path: [{x,y}, ...], endHit, target?, facing }
+//   path     – walkable tiles from the player to the stop point (exclusive)
+//   endHit   – 'wall' | 'enemy' | 'edge' | 'range'
+//   target   – the player struck (only when endHit === 'enemy')
+//   facing   – the player's facing index (0–7, used to pick a glyph)
+function buildAimOverlay(state, me) {
+  if (!me || !me.alive) return null;
+
+  const dir = DIRECTIONS[me.facing];
+  const range = WEAPONS[me.weapon].range;
+
+  const path = [];
+  let x = me.pos.x;
+  let y = me.pos.y;
+  let endHit = 'range';
+  let target = null;
+
+  for (let step = 1; step <= range; step++) {
+    x += dir.dx;
+    y += dir.dy;
+
+    if (!state.map.inBounds(x, y))   { endHit = 'edge'; break; }
+
+    const hit = state.players.find(p => p.alive && p.id !== me.id && p.pos.x === x && p.pos.y === y);
+    if (hit)                          { endHit = 'enemy'; target = hit; break; }
+
+    if (state.map.blocksLOS(x, y))    { endHit = 'wall'; break; }
+
+    path.push({ x, y });
+  }
+
+  return { path, endHit, target, facing: me.facing };
+}
+
 // ─── Map renderer ────────────────────────────────────────────────────────────
 function renderMap(state, myId) {
   const { map, players, round } = state;
+  const me = players.find(p => p.id === myId);
 
   const grid = [];
   for (let y = 0; y < map.height; y++) grid.push(map.tiles[y].slice());
@@ -97,12 +139,24 @@ function renderMap(state, myId) {
     grid[round.bomb.y][round.bomb.x] = { bomb: true };
   }
 
+  // Compute the local player's aim path
+  const aim          = buildAimOverlay(state, me);
+  const aimSet       = aim ? new Set(aim.path.map(t => t.x + ',' + t.y)) : null;
+  const aimGlyph     = aim ? AIM_GLYPHS[aim.facing] : null;
+  const lockedOnId   = aim && aim.endHit === 'enemy' ? aim.target.id : null;
+
   return Array.from({ length: map.height }, (_, y) => {
     let line = '';
     for (let x = 0; x < map.width; x++) {
       const cell = grid[y][x];
+
       if (typeof cell !== 'object') {
-        line += colorTile(cell);
+        // Aim path overlay on plain floor tiles only (keeps A/B/water/cover legible)
+        if (aimSet && cell === '.' && aimSet.has(x + ',' + y)) {
+          line += col(C.byellow + C.bold, aimGlyph);
+        } else {
+          line += colorTile(cell);
+        }
       } else if (cell.bomb) {
         const blink = Math.floor(Date.now() / 300) % 2 === 0;
         line += blink
@@ -112,7 +166,12 @@ function renderMap(state, myId) {
         const p = cell.player;
         const tc = p.team === 'T' ? C.bred : C.bcyan;
         const glyph = p.team === 'T' ? 'T' : 'C';
-        line += col(p.id === myId ? C.bold + tc + C.inv : tc, glyph);
+
+        let style;
+        if (p.id === myId)             style = C.bold + tc + C.inv;
+        else if (p.id === lockedOnId)  style = C.bold + C.bgYellow + '\x1b[30m';  // "locked on"
+        else                           style = tc;
+        line += col(style, glyph);
       }
     }
     return line;
