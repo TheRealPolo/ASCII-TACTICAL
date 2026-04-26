@@ -75,11 +75,18 @@ socket.on('close', () => {
 
 socket.on('error', (err) => {
   restoreTerminal();
-  console.error(`\n[ERROR] Failed to connect to ${HOST}:${PORT}`);
-  console.error(`Reason: ${err.message}`);
-  console.error('\nDid you forget to start the server? Steps:');
-  console.error('  1. Open a terminal and run:  node server.js');
-  console.error('  2. In ANOTHER terminal run:  node index.js');
+  process.stderr.write([
+    '',
+    '\x1b[91m+========================================+\x1b[0m',
+    '\x1b[91m|  CONNECTION FAILED                     |\x1b[0m',
+    '\x1b[91m+========================================+\x1b[0m',
+    `  \x1b[90mHost    \x1b[97m${HOST}:${PORT}\x1b[0m`,
+    `  \x1b[90mReason  \x1b[91m${err.message}\x1b[0m`,
+    '',
+    '  \x1b[90m1.\x1b[0m Start the server:   \x1b[97mnode server.js\x1b[0m',
+    '  \x1b[90m2.\x1b[0m Connect a client:   \x1b[97mnode index.js [host] [name] [T|CT]\x1b[0m',
+    '',
+  ].join('\n'));
   process.exit(1);
 });
 
@@ -191,6 +198,16 @@ function restoreTerminal() {
 // Restore terminal when process exits
 process.on('exit', restoreTerminal);
 
-// ===== Startup Message =====
+// ─── Connecting screen ────────────────────────────────────────────────────────
 process.stdout.write(clearAndHome());
-process.stdout.write(`Connecting to ${HOST}:${PORT}...\n`);
+process.stdout.write([
+  '\x1b[96m+============================================+\x1b[0m',
+  '\x1b[96m|\x1b[0m  \x1b[1m\x1b[97mASCII-TACTICAL\x1b[0m                           \x1b[96m|\x1b[0m',
+  '\x1b[96m+============================================+\x1b[0m',
+  `  \x1b[90mConnecting to  \x1b[97m${HOST}:${PORT}\x1b[0m`,
+  `  \x1b[90mName           \x1b[97m${MY_NAME}\x1b[0m`,
+  `  \x1b[90mTeam           \x1b[97m${MY_TEAM}\x1b[0m`,
+  '',
+  '  \x1b[90mWaiting for server...\x1b[0m',
+  '',
+].join('\n'));
