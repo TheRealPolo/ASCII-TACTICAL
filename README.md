@@ -1,6 +1,6 @@
 # ASCII Tactical
 
-A fun multiplayer tactical shooter in your terminal. Think Counter-Strike but in ASCII art. Pure Node.js, no complicated setup.
+A fun local multiplayer tactical shooter in your terminal. Think Counter-Strike but in ASCII art. Pure Node.js, no complicated setup.
 
 ---
 
