@@ -25,6 +25,21 @@ const { createState, startNewRound, tick, handlePlayerKey, pushLog } = require('
 const { createPlayer } = require('./src/player');
 const { TICK_MS } = require('./src/config');
 
+// ─── Styled server logging ────────────────────────────────────────────────────
+const _styles = {
+  info:  ['\x1b[90m',  'INFO '],
+  join:  ['\x1b[92m',  'JOIN '],
+  leave: ['\x1b[93m',  'LEAVE'],
+  game:  ['\x1b[96m',  'GAME '],
+  match: ['\x1b[95m',  'MATCH'],
+  error: ['\x1b[91m',  'ERROR'],
+};
+function slog(level, msg) {
+  const ts = new Date().toLocaleTimeString('en', { hour12: false });
+  const [style, label] = _styles[level] || ['\x1b[97m', level.toUpperCase().padEnd(5)];
+  process.stdout.write(`\x1b[90m${ts}\x1b[0m  ${style}${label}\x1b[0m  ${msg}\n`);
+}
+
 const PORT = parseInt(process.argv[2], 10) || 7777;
 const MIN_PLAYERS = 2;          // Minimum players needed to start a match
 const MAX_PLAYERS = 10;         // Maximum players in a single match
@@ -183,14 +198,14 @@ function beginGame() {
 
   // Both teams must have at least one player
   if (tCount === 0 || ctCount === 0) {
-    console.log('Unbalanced teams, waiting for more players...');
-    startCountdown(); // Restart countdown
+    slog('game', 'Unbalanced teams — waiting for more players...');
+    startCountdown();
     return;
   }
 
   gameStarted = true;
   startNewRound(state, /* first */ true);
-  console.log(`Match started with ${state.players.length} players.`);
+  slog('match', `Match started with \x1b[97m${state.players.length}\x1b[0m players`);
 
   // Main game loop: run game logic and broadcast state every tick
   gameInterval = setInterval(() => {
@@ -200,11 +215,10 @@ function beginGame() {
       state: serializeState(state),
     });
 
-    // If match ends, shut down gracefully
     if (state.matchOver) {
       clearInterval(gameInterval);
       gameInterval = null;
-      console.log('Match ended.');
+      slog('match', `Match over  T \x1b[91m${state.score.T}\x1b[0m : \x1b[96m${state.score.CT}\x1b[0m CT`);
 
       // Wait POST_MATCH_S seconds before closing server
       setTimeout(() => {
@@ -266,7 +280,8 @@ function handleClientMessage(clientId, conn, msg) {
 
     // Notify client of their ID and team
     sendTo(clientId, { type: 'yourId', id: player.id, team });
-    console.log(`${player.name} (${team}) joined. Total: ${state.players.length}`);
+    const teamColor = team === 'T' ? '\x1b[91m' : '\x1b[96m';
+    slog('join', `\x1b[97m${player.name}\x1b[0m  team ${teamColor}${team}\x1b[0m  (${state.players.length}/${MAX_PLAYERS} total)`);
 
     // If minimum players reached, start countdown
     if (state.players.length >= MIN_PLAYERS) {
@@ -332,7 +347,7 @@ const server = net.createServer((socket) => {
         if (!gameStarted) {
           // Lobby phase: remove player immediately
           state.players = state.players.filter((pl) => pl.id !== conn.playerId);
-          console.log(`${p.name} left lobby. Total: ${state.players.length}`);
+          slog('leave', `\x1b[97m${p.name}\x1b[0m  left lobby  (${state.players.length} remain)`);
 
           // Cancel countdown if below min players
           if (state.players.length < MIN_PLAYERS) {
@@ -344,7 +359,7 @@ const server = net.createServer((socket) => {
           // Match phase: mark as dead, but keep in player list
           p.alive = false;
           pushLog(state, `[CONNECTION] ${p.name} disconnected.`);
-          console.log(`${p.name} disconnected during match.`);
+          slog('leave', `\x1b[97m${p.name}\x1b[0m  disconnected during match`);
         }
       }
     }
@@ -360,14 +375,23 @@ const server = net.createServer((socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`=== ASCII TACTICAL SERVER ===`);
-  console.log(`Listening on port ${PORT}`);
-  console.log(`Minimum ${MIN_PLAYERS} players to start`);
-  console.log(`Clients connect with: node index.js [host] [name] [T|CT]`);
+  const W = 44;
+  const bar = '='.repeat(W);
+  process.stdout.write([
+    '',
+    `\x1b[96m+${bar}+\x1b[0m`,
+    `\x1b[96m|\x1b[0m  \x1b[1m\x1b[97mASCII-TACTICAL\x1b[0m  \x1b[90m|\x1b[0m  \x1b[96mGAME SERVER\x1b[0m             \x1b[96m|\x1b[0m`,
+    `\x1b[96m+${bar}+\x1b[0m`,
+    '',
+    `  \x1b[90mPort   \x1b[97m${PORT}\x1b[0m`,
+    `  \x1b[90mMin    \x1b[97m${MIN_PLAYERS} players\x1b[0m  \x1b[90mMax  \x1b[97m${MAX_PLAYERS} players\x1b[0m`,
+    `  \x1b[90mJoin   \x1b[97mnode index.js [host] [name] [T|CT]\x1b[0m`,
+    '',
+  ].join('\n'));
 });
 
 server.on('error', (err) => {
-  console.error('Server error:', err.message);
+  slog('error', err.message);
   process.exit(1);
 });
 
