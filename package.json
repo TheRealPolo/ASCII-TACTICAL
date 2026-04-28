@@ -1,6 +1,6 @@
 {
   "name": "ascii-tactical",
-  "version": "VISUALITY_UPDATE",
+  "version": "BETAv0.1",
   "description": "ASCII tactical shooter (CS2-style), fully multiplayer. Pure Node.js, no dependencies.",
   "main": "index.js",
   "scripts": {
