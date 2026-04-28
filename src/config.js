@@ -9,54 +9,62 @@
 const TICK_MS = 100;
 
 // ===== Weapons =====
-// Properties: range (tiles), damage, magazine size, reserve ammo, cooldown, reload time, price
-// Adjust these to balance weapon choices in the economy
+// CS-style loadout: pistol (free default), smg, rifle, awp
+// Slots:  pistol · smg · rifle · awp
 const WEAPONS = {
   pistol: {
-    name: 'Pistol',
-    range: 15,        // How far bullets travel
-    damage: 15,       // Damage per shot
-    magazine: 12,     // Rounds loaded at once
-    reserve: 60,      // Extra ammo available
-    cooldownMs: 400,  // Minimum ms between shots
-    reloadMs: 1500,   // Time to reload (hidden by other actions)
-    price: 500,
+    name: 'Glock-18',
+    slot: 'pistol',
+    range: 8,
+    damage: 18,
+    magazine: 20,
+    reserve: 120,
+    cooldownMs: 350,
+    reloadMs: 1400,
+    price: 0,          // Default sidearm — always free
+  },
+  smg: {
+    name: 'MP5-SD',
+    slot: 'smg',
+    range: 10,
+    damage: 22,
+    magazine: 30,
+    reserve: 120,
+    cooldownMs: 280,   // Fast fire rate
+    reloadMs: 1900,
+    price: 1500,
   },
   rifle: {
-    name: 'Rifle',
-    range: 25,
-    damage: 30,
+    name: 'AK-47',
+    slot: 'rifle',
+    range: 16,
+    damage: 34,
     magazine: 30,
     reserve: 90,
-    cooldownMs: 600,
-    reloadMs: 2200,
-    price: 2500,
+    cooldownMs: 500,
+    reloadMs: 2400,
+    price: 2700,
   },
-  sniper: {
-    name: 'Sniper',
-    range: 40,
-    damage: 85,
+  awp: {
+    name: 'AWP',
+    slot: 'awp',
+    range: 30,
+    damage: 110,       // One-shot kill (100 HP + armor considered)
     magazine: 5,
     reserve: 30,
-    cooldownMs: 1500, // Slow fire rate
-    reloadMs: 3000,
-    price: 4700,
+    cooldownMs: 200,  // Very slow fire rate
+    reloadMs: 3200,
+    price: 4750,
   },
 };
 
 // ===== Equipment =====
 // Armor absorbs 50% of incoming damage (up to its value).
-// Medkit restores health to 100.
 const EQUIPMENT = {
   armor: {
     name: 'Armor Vest',
     price: 1000,
     value: 50,        // Absorbs up to 50 damage (at 50% reduction)
-  },
-  medkit: {
-    name: 'Medkit',
-    price: 400,
-    value: 50,        // Restores up to 50 health
   },
 };
 
@@ -64,7 +72,7 @@ const EQUIPMENT = {
 // Players earn money from kills, objectives, and round wins.
 // Money is capped at maxMoney to prevent buying everything.
 const ECONOMY = {
-  startMoney: 800,        // Starting money each round
+  startMoney: 1000,       // Starting money each round
   killReward: 300,        // Bonus for eliminating opponent
   plantReward: 400,       // Bonus for planting bomb
   defuseReward: 400,      // Bonus for defusing bomb
@@ -103,9 +111,13 @@ const DIRECTIONS = [
   { name: 'NW', dx: -1, dy: -1, glyph: '\\' }, // Up-left
 ];
 
+// Ordered list of weapon slot keys — used for display and switch shortcuts
+const WEAPON_SLOTS = ['pistol', 'smg', 'rifle', 'awp'];
+
 module.exports = {
   TICK_MS,
   WEAPONS,
+  WEAPON_SLOTS,
   EQUIPMENT,
   ECONOMY,
   ROUND,

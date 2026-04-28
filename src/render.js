@@ -9,7 +9,7 @@
  * Frame height: 24 rows    (1 top + 1 header + 1 sep + 20 map + 1 bottom)
  */
 
-const { WEAPONS, EQUIPMENT, DIRECTIONS } = require('./config');
+const { WEAPONS, WEAPON_SLOTS, EQUIPMENT, DIRECTIONS } = require('./config');
 
 // Directional glyph for the aim-line overlay (matches DIRECTIONS index 0–7)
 const AIM_GLYPHS = ['|', '/', '-', '\\', '|', '/', '-', '\\'];
@@ -278,14 +278,40 @@ function buildHUD(state, myId) {
 }
 
 // ─── Buy-menu overlay (replaces rows 13–18) ──────────────────────────────────
+//
+//  ─────────────── SHOP ───────────────
+//  [1] MP5-SD        $1500   SMG
+//  [2] AK-47         $2700   RIFLE
+//  [3] AWP           $4750   SNIPER
+//  [4] Armor Vest    $1000
+//  Budget $xxxx  · [B] close
+//  (owned weapons shown dimmed)
+//
 function buildBuyRows(me) {
+  function weaponLine(key, num) {
+    const w = WEAPONS[key];
+    const owned = me.inventory[key];
+    const numTag = col(owned ? C.gray : C.byellow + C.bold, `[${num}]`);
+    const nameStr = padR(w.name, 10);
+    const priceStr = w.price === 0
+      ? col(C.gray, '  FREE')
+      : col(owned ? C.gray : C.bgreen, `$${w.price}`);
+    const ownedTag = owned ? col(C.gray + C.dim, ' ✓') : '';
+    return padR(` ${numTag} ${owned ? col(C.gray, nameStr) : nameStr} ${priceStr}${ownedTag}`, HUD_W);
+  }
+
+  const armorOwned = me.armor >= EQUIPMENT.armor.value;
+  const armorNum   = col(armorOwned ? C.gray : C.byellow + C.bold, '[4]');
+  const armorName  = padR(EQUIPMENT.armor.name, 10);
+  const armorPrice = col(armorOwned ? C.gray : C.bgreen, armorOwned ? ' owned' : `$${EQUIPMENT.armor.price}`);
+
   return [
-    col(C.gray, ' ' + '-'.repeat(13) + ' SHOP ' + '-'.repeat(14)),
-    padR(` ${col(C.byellow + C.bold, '[1]')} ${padR(WEAPONS.pistol.name, 8)} ${col(C.bgreen, '$' + WEAPONS.pistol.price)}   ${col(C.byellow + C.bold, '[2]')} ${padR(WEAPONS.rifle.name, 6)} ${col(C.bgreen, '$' + WEAPONS.rifle.price)}`, HUD_W),
-    padR(` ${col(C.byellow + C.bold, '[3]')} ${padR(WEAPONS.sniper.name, 8)} ${col(C.bgreen, '$' + WEAPONS.sniper.price)}`, HUD_W),
-    padR(` ${col(C.byellow + C.bold, '[4]')} ${padR(EQUIPMENT.armor.name, 9)} ${col(C.bgreen, '$' + EQUIPMENT.armor.price)}  ${col(C.byellow + C.bold, '[5]')} ${padR(EQUIPMENT.medkit.name, 6)} ${col(C.bgreen, '$' + EQUIPMENT.medkit.price)}`, HUD_W),
-    padR(` ${col(C.gray, 'Budget')} ${col(C.bgreen + C.bold, '$' + me.money)}  ${col(C.gray, '· close with [B]')}`, HUD_W),
-    '',
+    col(C.gray, ' ' + '─'.repeat(12) + ' SHOP ' + '─'.repeat(15)) + col(C.gray + C.dim, ' [B] close'),
+    weaponLine('smg',   1),
+    weaponLine('rifle', 2),
+    weaponLine('awp',   3),
+    padR(` ${armorNum} ${armorOwned ? col(C.gray, armorName) : armorName} ${armorPrice}`, HUD_W),
+    padR(` ${col(C.gray, 'Budget')} ${col(C.bgreen + C.bold, '$' + me.money)}  ${col(C.gray, '1-4 buy  ·  [B] close')}`, HUD_W),
   ];
 }
 
@@ -359,7 +385,7 @@ function renderFrame(state, myId) {
   }
 
   out.push('+' + H.repeat(MAP_INNER) + '+' + H.repeat(HUD_W) + '+');
-  out.push(col(C.gray, ' WASD/QE move  SPACE shoot  R reload  1/2/3 weapon  B shop  TAB stats  ^C quit') + `${E}[K`);
+  out.push(col(C.gray, ' WASD/QE move  SPACE shoot  R reload  1-4 weapon  B shop  TAB stats  F plant/defuse  ^C quit') + `${E}[K`);
   out.push(`${E}[J`);
 
   process.stdout.write(out.join('\n'));

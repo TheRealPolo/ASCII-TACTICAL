@@ -41,7 +41,7 @@ function createPlayer({ team, name, spawn, spawnIdx = 0, weapon = 'pistol' }) {
     // === Weapons & Ammo ===
     weapon,                              // Current weapon key
     ammo: { current: w.magazine, reserve: w.reserve }, // Magazine + reserve
-    inventory: { pistol: true, rifle: false, sniper: false }, // Owned weapons
+    inventory: { pistol: true, smg: false, rifle: false, awp: false }, // Owned weapons
     lastShotAt: 0,                       // Timestamp for fire rate limiting
     reloadingUntil: 0,                   // Timestamp when reload finishes
 

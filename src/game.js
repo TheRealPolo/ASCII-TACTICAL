@@ -15,7 +15,7 @@
  *   CT wins: Bomb defused, OR all T are eliminated, OR time runs out
  */
 
-const { TICK_MS, WEAPONS, EQUIPMENT, ECONOMY, ROUND, DIRECTIONS } = require('./config');
+const { TICK_MS, WEAPONS, WEAPON_SLOTS, EQUIPMENT, ECONOMY, ROUND, DIRECTIONS } = require('./config');
 const { createMap } = require('./map');
 const { createPlayer, resetForRound, setWeapon } = require('./player');
 const { tryShoot, tryReload, finalizeReloads, chebyshevDistance } = require('./combat');
@@ -102,7 +102,7 @@ function startNewRound(state, first = false) {
   if (!first) {
     pushLog(state, `[ROUND ${state.round.number}] Buy phase begins!`);
   } else {
-    pushLog(state, '[START] Welcome! Press B to open the shop.');
+    pushLog(state, '[START] Welcome! Press B to open the shop. You start with a Glock-18.');
   }
 }
 
@@ -166,33 +166,24 @@ function handlePlayerKey(state, playerId, str, key) {
     return;
   }
 
-  // Buy menu shortcuts (1-5)
+  // Buy menu shortcuts (1-4 = weapons/armor, B closes)
   if (player.buyMenuOpen) {
-    if (str === '1') return buy(state, player, 'pistol');
+    if (str === '1') return buy(state, player, 'smg');
     if (str === '2') return buy(state, player, 'rifle');
-    if (str === '3') return buy(state, player, 'sniper');
+    if (str === '3') return buy(state, player, 'awp');
     if (str === '4') return buy(state, player, 'armor');
-    if (str === '5') return buy(state, player, 'medkit');
   }
 
   if (!player.alive) {
     return; // Dead players can't act
   }
 
-  // Weapon swap (only when menu is closed)
+  // Weapon swap (only when menu is closed): 1=pistol 2=smg 3=rifle 4=awp
   if (!player.buyMenuOpen) {
-    if (str === '1' && player.inventory.pistol) {
-      setWeapon(player, 'pistol');
-      return;
-    }
-    if (str === '2' && player.inventory.rifle) {
-      setWeapon(player, 'rifle');
-      return;
-    }
-    if (str === '3' && player.inventory.sniper) {
-      setWeapon(player, 'sniper');
-      return;
-    }
+    if (str === '1' && player.inventory.pistol) { setWeapon(player, 'pistol'); return; }
+    if (str === '2' && player.inventory.smg)    { setWeapon(player, 'smg');    return; }
+    if (str === '3' && player.inventory.rifle)  { setWeapon(player, 'rifle');  return; }
+    if (str === '4' && player.inventory.awp)    { setWeapon(player, 'awp');    return; }
   }
 
   // Movement (WASD) - dx, dy offsets
@@ -290,57 +281,47 @@ function tileOccupied(state, x, y, ignoreId) {
 }
 
 /**
- * Handle a player purchase.
- *
- * Weapons, armor, and medkits can only be bought during the buy phase.
- * Only buys if the player has enough money.
+ * Handle a player purchase during the buy phase.
  *
  * @param {object} state - Game state
  * @param {object} player - Buying player
- * @param {string} item - Item key: 'pistol'|'rifle'|'sniper'|'armor'|'medkit'
+ * @param {string} item - Weapon slot key or 'armor'
  */
 function buy(state, player, item) {
-  if (state.round.phase !== 'buy') {
-    return;
-  }
+  if (state.round.phase !== 'buy') return;
 
-  // ===== Weapons =====
-  if (item === 'pistol' || item === 'rifle' || item === 'sniper') {
+  // ===== Weapons (smg / rifle / awp — pistol is free default) =====
+  if (WEAPONS[item]) {
     const w = WEAPONS[item];
+    if (item === 'pistol') return; // Always free, already owned
+    if (player.inventory[item]) {
+      pushLog(state, `[${player.name}] Already own ${w.name}.`);
+      return;
+    }
     if (player.money < w.price) {
-      pushLog(state, `[${player.name}] Not enough money for ${w.name} ($${w.price}).`);
+      pushLog(state, `[${player.name}] Need $${w.price} for ${w.name} (have $${player.money}).`);
       return;
     }
     player.money -= w.price;
     player.inventory[item] = true;
-    setWeapon(player, item); // Also equip the weapon
+    setWeapon(player, item);
     pushLog(state, `[${player.name}] Bought ${w.name}.`);
     return;
   }
 
   // ===== Armor =====
   if (item === 'armor') {
+    if (player.armor >= EQUIPMENT.armor.value) {
+      pushLog(state, `[${player.name}] Already have full armor.`);
+      return;
+    }
     if (player.money < EQUIPMENT.armor.price) {
-      pushLog(state, `[${player.name}] Not enough money for armor vest.`);
+      pushLog(state, `[${player.name}] Need $${EQUIPMENT.armor.price} for Armor Vest (have $${player.money}).`);
       return;
     }
     player.money -= EQUIPMENT.armor.price;
-    // Armor doesn't stack; set to max
     player.armor = Math.max(player.armor, EQUIPMENT.armor.value);
-    pushLog(state, `[${player.name}] Bought Armor Vest (+50 armor).`);
-    return;
-  }
-
-  // ===== Medkit =====
-  if (item === 'medkit') {
-    if (player.money < EQUIPMENT.medkit.price) {
-      pushLog(state, `[${player.name}] Not enough money for medkit.`);
-      return;
-    }
-    player.money -= EQUIPMENT.medkit.price;
-    // Restore health (capped at 100)
-    player.health = Math.min(100, player.health + EQUIPMENT.medkit.value);
-    pushLog(state, `[${player.name}] Bought Medkit (+50 health).`);
+    pushLog(state, `[${player.name}] Bought Armor Vest.`);
     return;
   }
 }
