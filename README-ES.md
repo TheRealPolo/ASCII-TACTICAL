@@ -195,3 +195,24 @@ Un desarrollador debería saber inglés técnico.
 ## Licencia
 
 MIT
+
+---
+
+## Changelog
+
+### BETAv0.3 — Tienda mejorada y armas de CS
+- Se reemplazaron las armas genéricas por el arsenal estilo CS: **Glock-18** (gratis), **MP5-SD**, **AK-47**, **AWP**
+- Se añadió un 4.º slot de arma (`smg`); las teclas de cambio de arma ahora van de `1` a `4`
+- Menú de tienda rediseñado: muestra si ya posees el arma (✓), pone en gris los artículos ya comprados e integra el atajo para cerrar
+- Eliminado el botiquín de la tienda
+- Dinero inicial aumentado de $800 a $1.000
+- La compra de armadura ahora se bloquea si ya tienes la armadura completa
+
+### BETAv0.2 — Cambio de mapa
+- Nuevo diseño de mapa con los puntos de bomba A y B rediseñados
+
+### BETAv0.1 — Lanzamiento inicial
+- Multijugador local por TCP (Node.js, sin dependencias)
+- T vs CT con fase de compra, fase de combate y mecánica de plantar/desactivar bomba
+- Renderizado ASCII en terminal con colores ANSI y línea de apunte
+- Movimiento y orientación en 8 direcciones

@@ -451,3 +451,24 @@ socket.on("message", (msg) => {
 ## License
 
 MIT
+
+---
+
+## Changelog
+
+### BETAv0.3 — Shop overhaul & CS weapons
+- Replaced generic weapons with CS-style loadout: **Glock-18** (free), **MP5-SD**, **AK-47**, **AWP**
+- Added 4th weapon slot (`smg`); weapon switch keys are now `1`–`4`
+- Buy menu redesigned: shows owned status (✓), grays out already-purchased items, integrates close hint
+- Removed medkit from the shop
+- Starting money increased $800 → $1,000
+- Armor purchase now blocked if already at full armor
+
+### BETAv0.2 — Map change
+- New map layout with redesigned bomb sites A and B
+
+### BETAv0.1 — Initial release
+- Local multiplayer over TCP (Node.js, zero dependencies)
+- T vs CT with buy phase, combat phase, bomb plant/defuse
+- ASCII terminal renderer with ANSI colors and aim-line overlay
+- 8-directional movement and facing
