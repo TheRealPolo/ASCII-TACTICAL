@@ -1,6 +1,6 @@
 # ASCII-TACTICAL
 
-A **LOCAL** multiplayer real-time tactical shooter that runs entirely in your terminal. Two teams, one bomb, no mercy.
+A **multiplayer real-time tactical shooter** that runs entirely in your terminal. Two teams, one bomb, no mercy. Play **locally on LAN** or **globally via internet** with automatic room discovery.
 
 ```
 ┌──────────────────────────────┬─────────────────────────────────────────────┐
@@ -50,7 +50,9 @@ No `npm install` needed — zero external dependencies.
 
 ## Running the Game
 
-**1. Start the server** (one terminal window):
+### Option A: Local Play (LAN)
+
+**1. Start the server** (one terminal):
 
 ```bash
 node server.js
@@ -60,22 +62,49 @@ node server.js
 **2. Connect each player** (separate terminal per player):
 
 ```bash
-node index.js [host] [name] [team]
+node index.js localhost Alice T
+node index.js localhost Bob CT
 ```
+
+### Option B: Global Play (Internet Multiplayer)
+
+**1. Start the matchmaking hub** (on a public server, once):
+
+```bash
+node matchmaking.js
+# or: node matchmaking.js <port>   (default: 7776)
+```
+
+**2. Host a game room** (any player with a public IP):
+
+```bash
+node server.js 7777 --mm mm.yourdomain.com --name "My Room"
+```
+
+**3. Join via room browser** (on any machine with internet):
+
+```bash
+node index.js --mm mm.yourdomain.com Alice T
+```
+
+This shows all live rooms. Navigate with `W/S` or `↑/↓`, press `ENTER` to join, `R` to refresh, `^C` to quit.
+
+### Direct Connection (Explicit IP)
+
+If you know the game server's IP:
+
+```bash
+node index.js 192.168.1.100 Alice T
+```
+
+### Arguments
 
 | Argument | Default     | Options            |
 |----------|-------------|--------------------|
 | `host`   | `localhost` | any IP or hostname |
-| `name`   | random      | any string         |
+| `--mm`   | disabled    | matchmaking server |
+| `name`   | `Player`    | any string         |
 | `team`   | `auto`      | `T`, `CT`, `auto`  |
-
-**Examples:**
-
-```bash
-node index.js localhost Alice T
-node index.js localhost Bob CT
-node index.js 197.000.00.0 Charlie auto
-```
 
 The match lobby starts a countdown once 2+ players are connected and launches automatically.
 
@@ -165,11 +194,12 @@ Cover blocks both movement and line-of-sight.
 ```
 ASCII-TACTICAL/
 ├── server.js          # Game server — authoritative state, port 7777
+├── matchmaking.js     # Room discovery hub — port 7776 (optional, for global play)
 ├── index.js           # Client — terminal UI and input
 └── src/
     ├── game.js        # Round logic, win conditions, player input
     ├── combat.js      # Shooting, damage, line-of-sight (Bresenham)
-    ├── render.js      # ANSI terminal renderer, HUD layout
+    ├── render.js      # ANSI terminal renderer, HUD layout, room browser
     ├── map.js         # Map data and spatial queries
     ├── player.js      # Player factory and state
     ├── config.js      # Balance parameters (weapons, economy, timing)
@@ -182,7 +212,41 @@ ASCII-TACTICAL/
 
 The server broadcasts full game state to all clients every **100 ms** over TCP using newline-delimited JSON. The client never simulates authoritative game logic — all decisions are made server-side.
 
+---
 
+## Global Multiplayer (Matchmaking)
+
+For **internet-wide multiplayer**, use the optional matchmaking server:
+
+### How It Works
+
+1. **Matchmaking Hub** (`matchmaking.js`) runs on a public IP (e.g., VPS, cloud server)
+   - Port: 7776 (configurable)
+   - Maintains a **live list of active game rooms**
+   - Game servers register with their details (name, player count, status)
+   - Servers send **heartbeat every 10 seconds** — rooms go stale after 35s of silence
+
+2. **Game Servers** register with the matchmaking hub:
+   ```bash
+   node server.js 7777 --mm matchmaking.yourdomain.com --name "Tournament Room 1"
+   ```
+   - Works even behind NAT (matchmaking sees the connecting IP)
+   - Automatically re-registers on reconnect
+
+3. **Players** browse available rooms:
+   ```bash
+   node index.js --mm matchmaking.yourdomain.com Alice T
+   ```
+   - Live room list shows: name, player count, current phase (lobby/combat)
+   - Navigate with `W/S` or arrow keys, `ENTER` to join
+   - On selection, client disconnects from matchmaking and connects directly to the game server
+
+### Why This Design?
+
+- **Decoupled**: Game servers don't depend on the matchmaking server to run — if MM goes down, active games continue
+- **Scalable**: Multiple game servers can register with one matchmaking hub
+- **Simple**: No complex relay or proxy logic — players connect directly to the game server
+- **Resilient**: Servers auto-reconnect to matchmaking if the hub restarts
 
 ---
 
@@ -192,13 +256,26 @@ The server broadcasts full game state to all clients every **100 ms** over TCP u
 
 No build step required. Just edit code and restart the server.
 
+**Local play:**
 ```bash
-# Terminal 1: Server with auto-restart (requires nodemon)
-npm install -g nodemon
+# Terminal 1: Server
 nodemon server.js
 
 # Terminal 2+: Client(s)
 node index.js localhost Alice T
+```
+
+**Global multiplayer testing (on localhost):**
+```bash
+# Terminal 1: Matchmaking hub
+node matchmaking.js
+
+# Terminal 2: Game server (registers with MM)
+node server.js 7777 --mm localhost --name "Dev Room"
+
+# Terminal 3+: Clients (browse rooms)
+node index.js --mm localhost Alice T
+node index.js --mm localhost Bob CT
 ```
 
 ---

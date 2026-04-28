@@ -455,4 +455,70 @@ function renderLobby(lobby, myId) {
   process.stdout.write(out.join('\n'));
 }
 
-module.exports = { renderFrame, renderLobby, clearAndHome };
+// ─── Global Rooms browser ─────────────────────────────────────────────────────
+function renderRooms(rooms, selectedIdx, mmHost, mmPort) {
+  const W = MAP_INNER + 1 + HUD_W; // 78
+  const H = '=', V = '|';
+
+  const out = [home()];
+  out.push('+' + H.repeat(W) + '+');
+  out.push(V + padR(col(C.bwhite + C.bold, '  ASCII-TACTICAL  |  GLOBAL ROOMS'), W) + V);
+  out.push('+' + H.repeat(W) + '+');
+
+  // Column widths
+  const COL_NAME    = 28;
+  const COL_PLAYERS = 10;
+  const COL_STATUS  = 10;
+
+  const header = col(C.gray,
+    '  ' +
+    'ROOM'.padEnd(COL_NAME) +
+    'PLAYERS'.padEnd(COL_PLAYERS) +
+    'STATUS'.padEnd(COL_STATUS)
+  );
+  out.push(V + padR(header, W) + V);
+  out.push(V + col(C.gray, '  ' + '─'.repeat(W - 4)) + '  ' + V);
+
+  const MAX_VISIBLE = 12;
+  const start = Math.max(0, selectedIdx - Math.floor(MAX_VISIBLE / 2));
+  const slice = rooms.slice(start, start + MAX_VISIBLE);
+
+  if (slice.length === 0) {
+    out.push(V + padR(col(C.gray, '  No rooms available — be the first to host!'), W) + V);
+    out.push(V + padR(col(C.gray, '  node server.js --mm ' + mmHost + ':' + mmPort + ' --name "My Room"'), W) + V);
+  } else {
+    for (let i = 0; i < slice.length; i++) {
+      const r   = slice[i];
+      const idx = start + i;
+      const sel = idx === selectedIdx;
+
+      const phaseColor = r.phase === 'lobby' ? C.bgreen : r.phase === 'combat' ? C.bred : C.byellow;
+      const cursor     = sel ? col(C.byellow + C.bold, '> ') : '  ';
+      const nameStr    = sel
+        ? col(C.bwhite + C.bold, truncR(r.name, COL_NAME))
+        : col(C.white,           truncR(r.name, COL_NAME));
+      const playersStr = col(
+        r.players >= r.maxPlayers ? C.bred : C.bgreen,
+        `${r.players}/${r.maxPlayers}`.padEnd(COL_PLAYERS)
+      );
+      const statusStr  = col(phaseColor, r.phase.padEnd(COL_STATUS));
+      const hostStr    = col(C.gray, `  ${r.host}:${r.port}`);
+
+      const line = cursor + nameStr + playersStr + statusStr + hostStr;
+      out.push(V + padR(line, W) + V);
+    }
+  }
+
+  out.push(V + ' '.repeat(W) + V);
+  out.push('+' + H.repeat(W) + '+');
+
+  const hint = col(C.gray, '  W/S or ↑/↓ navigate   ENTER join   R refresh   ^C quit') +
+               col(C.gray, `   MM: ${mmHost}:${mmPort}`);
+  out.push(V + padR(hint, W) + V);
+  out.push('+' + H.repeat(W) + '+');
+  out.push(`${E}[J`);
+
+  process.stdout.write(out.join('\n'));
+}
+
+module.exports = { renderFrame, renderLobby, renderRooms, clearAndHome };

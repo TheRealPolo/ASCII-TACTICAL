@@ -2,212 +2,298 @@
 /**
  * ASCII TACTICAL - Game Client
  *
- * This is a TCP client that connects to the game server and renders the game
- * state in the terminal. It communicates via newline-delimited JSON messages.
+ * Connects to a game server and renders the match in the terminal.
+ * Supports direct connection OR matchmaking room browser.
  *
- * Usage: node index.js [host] [name] [team]
+ * ── Direct connection ───────────────────────────────────────────────────────
+ *   node index.js [host] [name] [team]
  *
  *   host  — server address (default: localhost)
- *   name  — player name (default: Player)
- *   team  — preferred team: 'T' (Terrorist), 'CT' (Counter-Terrorist), or 'auto' (default)
+ *   name  — player name   (default: Player)
+ *   team  — T | CT | auto (default: auto)
  *
- * Example: node index.js localhost Alice T
+ *   Example: node index.js game.example.com Alice T
+ *
+ * ── Global matchmaking browser ──────────────────────────────────────────────
+ *   node index.js --mm [host[:port]] [name] [team]
+ *
+ *   Browse live rooms, pick one with arrow keys, press ENTER to join.
+ *
+ *   Example: node index.js --mm mm.example.com Alice T
  */
 
-const net = require('net');
+'use strict';
+
+const net      = require('net');
 const readline = require('readline');
-const { renderFrame, renderLobby, clearAndHome } = require('./src/render');
+const { renderFrame, renderLobby, renderRooms, clearAndHome } = require('./src/render');
 const { createMap } = require('./src/map');
 
-// Parse command-line arguments
-const args    = process.argv.slice(2);
-const HOST    = args[0] || 'localhost';
-const PORT    = 7777;
-const MY_NAME = (args[1] || 'Player').slice(0, 16); // Limit name to 16 chars
-const MY_TEAM = args[2] || 'auto';
+// ─── Arg parsing ──────────────────────────────────────────────────────────────
+const rawArgs = process.argv.slice(2);
 
-// ===== Client State =====
-// Tracks connection phase and game state for the local client
+let MM_HOST = null, MM_PORT = 7776;
+const mmFlagIdx = rawArgs.indexOf('--mm');
+if (mmFlagIdx !== -1) {
+  const mmArg = (rawArgs[mmFlagIdx + 1] && !rawArgs[mmFlagIdx + 1].startsWith('-'))
+    ? rawArgs[mmFlagIdx + 1]
+    : 'localhost';
+  const [h, p] = mmArg.split(':');
+  MM_HOST = h;
+  if (p) MM_PORT = parseInt(p, 10) || 7776;
+}
 
-let myId       = null;           // Unique ID assigned by server when joining
-let phase      = 'connecting';   // Current phase: 'connecting' | 'lobby' | 'game'
-let lastState  = null;           // Last received game state
-let lastLobby  = null;           // Last received lobby state
-const localMap = createMap();    // Map is loaded once on client, never changes (maps are deterministic)
+// Positional args (exclude --mm and its value)
+const posArgs = rawArgs.filter((_, i) => i !== mmFlagIdx && (mmFlagIdx === -1 || i !== mmFlagIdx + 1));
 
-// ===== Network Setup =====
-// Establish TCP connection to the game server
+const GAME_HOST = MM_HOST ? null : (posArgs[0] || 'localhost');
+const GAME_PORT = 7777;
+const MY_NAME   = (MM_HOST ? posArgs[0] : posArgs[1] || 'Player').slice(0, 16) || 'Player';
+const MY_TEAM   = MM_HOST  ? (posArgs[1] || 'auto') : (posArgs[2] || 'auto');
 
-const socket = net.createConnection({ host: HOST, port: PORT }, () => {
-  // On successful connection, send join request
-  socket.write(JSON.stringify({ type: 'join', name: MY_NAME, team: MY_TEAM }) + '\n');
-});
+// ─── Client state ─────────────────────────────────────────────────────────────
+let myId       = null;
+let phase      = 'connecting'; // connecting | rooms | lobby | game
+let lastState  = null;
+let lastLobby  = null;
+const localMap = createMap();
 
-socket.setEncoding('utf8');
-let buf = ''; // Buffer for partial messages (newline-delimited JSON)
+// ─── Room browser state ───────────────────────────────────────────────────────
+let mmRooms      = [];
+let mmSelIdx     = 0;
+let mmSocket     = null;
+let mmBuf        = '';
 
-/**
- * Handle incoming data from server.
- * The protocol uses newline-delimited JSON, so we buffer partial lines.
- */
-socket.on('data', (chunk) => {
-  buf += chunk;
-  const lines = buf.split('\n');
-  buf = lines.pop(); // Keep incomplete line in buffer
+// ─── Game socket (set once we know which server to join) ──────────────────────
+let socket = null;
 
-  // Process all complete lines
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+// ─── Terminal helpers ─────────────────────────────────────────────────────────
+function restoreTerminal() {
+  process.stdout.write('\x1b[?25h\x1b[0m\n');
+  try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch (_) {}
+}
+process.on('exit', restoreTerminal);
+
+readline.emitKeypressEvents(process.stdin);
+if (process.stdin.isTTY) {
+  process.stdin.setRawMode(true);
+} else {
+  process.stderr.write('This client must run in an interactive terminal.\n');
+  process.exit(1);
+}
+process.stdin.resume();
+
+// ─── Keyboard input ───────────────────────────────────────────────────────────
+process.stdin.on('keypress', (str, key) => {
+  if (!key) return;
+  if (key.ctrl && key.name === 'c') { restoreTerminal(); process.exit(0); }
+
+  if (phase === 'rooms') {
+    handleRoomKey(str, key);
+  } else if (phase === 'game' && myId !== null && socket) {
     try {
-      handleServerMessage(JSON.parse(trimmed));
-    } catch (_) {
-      // Silently ignore malformed messages
-    }
+      socket.write(JSON.stringify({
+        type: 'key',
+        str:  str || '',
+        key:  { name: key.name || '', ctrl: !!key.ctrl },
+      }) + '\n');
+    } catch (_) {}
   }
 });
 
-socket.on('close', () => {
-  restoreTerminal();
-  console.log('\nDisconnected from server.');
-  process.exit(0);
-});
+// ─── Room browser keyboard ────────────────────────────────────────────────────
+function handleRoomKey(str, key) {
+  const name = key.name || '';
+  if (name === 'up'   || str === 'w' || str === 'W') {
+    mmSelIdx = Math.max(0, mmSelIdx - 1);
+    renderRooms(mmRooms, mmSelIdx, MM_HOST, MM_PORT);
+  } else if (name === 'down' || str === 's' || str === 'S') {
+    mmSelIdx = Math.min(Math.max(mmRooms.length - 1, 0), mmSelIdx + 1);
+    renderRooms(mmRooms, mmSelIdx, MM_HOST, MM_PORT);
+  } else if (name === 'return' && mmRooms.length > 0) {
+    const room = mmRooms[mmSelIdx];
+    if (room) joinRoom(room);
+  } else if (str === 'r' || str === 'R') {
+    mmRequestList();
+  }
+}
 
-socket.on('error', (err) => {
-  restoreTerminal();
-  process.stderr.write([
+// ─── Matchmaking connection ───────────────────────────────────────────────────
+function connectMatchmaking() {
+  phase = 'connecting';
+  process.stdout.write(clearAndHome());
+  process.stdout.write([
+    '\x1b[95m+============================================+\x1b[0m',
+    '\x1b[95m|\x1b[0m  \x1b[1m\x1b[97mASCII-TACTICAL\x1b[0m  |  \x1b[95mGLOBAL ROOMS\x1b[0m         \x1b[95m|\x1b[0m',
+    '\x1b[95m+============================================+\x1b[0m',
+    `  \x1b[90mConnecting to matchmaking  \x1b[97m${MM_HOST}:${MM_PORT}\x1b[0m`,
     '',
-    '\x1b[91m+========================================+\x1b[0m',
-    '\x1b[91m|  CONNECTION FAILED                     |\x1b[0m',
-    '\x1b[91m+========================================+\x1b[0m',
-    `  \x1b[90mHost    \x1b[97m${HOST}:${PORT}\x1b[0m`,
-    `  \x1b[90mReason  \x1b[91m${err.message}\x1b[0m`,
-    '',
-    '  \x1b[90m1.\x1b[0m Start the server:   \x1b[97mnode server.js\x1b[0m',
-    '  \x1b[90m2.\x1b[0m Connect a client:   \x1b[97mnode index.js [host] [name] [T|CT]\x1b[0m',
+    '  \x1b[90mFetching room list...\x1b[0m',
     '',
   ].join('\n'));
-  process.exit(1);
-});
 
-// ===== Server Message Handling =====
-/**
- * Process messages from the server.
- *
- * Message types:
- *   - 'yourId': Assign player ID and transition to lobby
- *   - 'lobby': Update lobby state (list of players, countdown)
- *   - 'state': Update game state (player positions, health, etc.)
- *   - 'error': Fatal error message, disconnect
- *   - 'shutdown': Server is shutting down gracefully
- */
+  mmSocket = net.createConnection({ host: MM_HOST, port: MM_PORT }, () => {
+    phase = 'rooms';
+    mmRequestList();
+  });
+
+  mmSocket.setEncoding('utf8');
+  mmSocket.on('data', (chunk) => {
+    mmBuf += chunk;
+    const lines = mmBuf.split('\n');
+    mmBuf = lines.pop();
+    for (const raw of lines) {
+      try { handleMMMessage(JSON.parse(raw.trim())); } catch (_) {}
+    }
+  });
+
+  mmSocket.on('close', () => {
+    if (phase === 'rooms') {
+      // MM disconnected while browsing — show error
+      process.stdout.write(clearAndHome());
+      process.stderr.write([
+        '',
+        '\x1b[91m+========================================+\x1b[0m',
+        '\x1b[91m|  MATCHMAKING DISCONNECTED              |\x1b[0m',
+        '\x1b[91m+========================================+\x1b[0m',
+        `  \x1b[90mServer  \x1b[97m${MM_HOST}:${MM_PORT}\x1b[0m`,
+        '',
+        '  \x1b[90mPress ^C to quit\x1b[0m',
+        '',
+      ].join('\n'));
+    }
+  });
+
+  mmSocket.on('error', (err) => {
+    restoreTerminal();
+    process.stderr.write([
+      '',
+      '\x1b[91m+========================================+\x1b[0m',
+      '\x1b[91m|  MATCHMAKING FAILED                    |\x1b[0m',
+      '\x1b[91m+========================================+\x1b[0m',
+      `  \x1b[90mHost    \x1b[97m${MM_HOST}:${MM_PORT}\x1b[0m`,
+      `  \x1b[90mReason  \x1b[91m${err.message}\x1b[0m`,
+      '',
+      '  \x1b[90m1.\x1b[0m Start matchmaking:  \x1b[97mnode matchmaking.js\x1b[0m',
+      '  \x1b[90m2.\x1b[0m Browse rooms:       \x1b[97mnode index.js --mm localhost Alice T\x1b[0m',
+      '',
+    ].join('\n'));
+    process.exit(1);
+  });
+}
+
+function mmRequestList() {
+  if (mmSocket && !mmSocket.destroyed) {
+    try { mmSocket.write(JSON.stringify({ type: 'list' }) + '\n'); } catch (_) {}
+  }
+}
+
+function handleMMMessage(msg) {
+  if (msg.type === 'rooms') {
+    mmRooms  = msg.rooms || [];
+    mmSelIdx = Math.min(mmSelIdx, Math.max(mmRooms.length - 1, 0));
+    renderRooms(mmRooms, mmSelIdx, MM_HOST, MM_PORT);
+  }
+}
+
+function joinRoom(room) {
+  // Close MM connection, then connect directly to the game server
+  phase = 'connecting';
+  if (mmSocket && !mmSocket.destroyed) mmSocket.destroy();
+  connectToGame(room.host, room.port);
+}
+
+// ─── Game server connection ───────────────────────────────────────────────────
+function connectToGame(host, port) {
+  process.stdout.write(clearAndHome());
+  process.stdout.write([
+    '\x1b[96m+============================================+\x1b[0m',
+    '\x1b[96m|\x1b[0m  \x1b[1m\x1b[97mASCII-TACTICAL\x1b[0m                           \x1b[96m|\x1b[0m',
+    '\x1b[96m+============================================+\x1b[0m',
+    `  \x1b[90mConnecting to  \x1b[97m${host}:${port}\x1b[0m`,
+    `  \x1b[90mName           \x1b[97m${MY_NAME}\x1b[0m`,
+    `  \x1b[90mTeam           \x1b[97m${MY_TEAM}\x1b[0m`,
+    '',
+    '  \x1b[90mWaiting for server...\x1b[0m',
+    '',
+  ].join('\n'));
+
+  socket = net.createConnection({ host, port }, () => {
+    socket.write(JSON.stringify({ type: 'join', name: MY_NAME, team: MY_TEAM }) + '\n');
+  });
+
+  socket.setEncoding('utf8');
+  let buf = '';
+
+  socket.on('data', (chunk) => {
+    buf += chunk;
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) continue;
+      try { handleServerMessage(JSON.parse(t)); } catch (_) {}
+    }
+  });
+
+  socket.on('close', () => {
+    restoreTerminal();
+    console.log('\nDisconnected from server.');
+    process.exit(0);
+  });
+
+  socket.on('error', (err) => {
+    restoreTerminal();
+    process.stderr.write([
+      '',
+      '\x1b[91m+========================================+\x1b[0m',
+      '\x1b[91m|  CONNECTION FAILED                     |\x1b[0m',
+      '\x1b[91m+========================================+\x1b[0m',
+      `  \x1b[90mHost    \x1b[97m${host}:${port}\x1b[0m`,
+      `  \x1b[90mReason  \x1b[91m${err.message}\x1b[0m`,
+      '',
+      '  \x1b[90m1.\x1b[0m Start the server:   \x1b[97mnode server.js\x1b[0m',
+      '  \x1b[90m2.\x1b[0m Connect a client:   \x1b[97mnode index.js [host] [name] [T|CT]\x1b[0m',
+      '',
+    ].join('\n'));
+    process.exit(1);
+  });
+}
+
+// ─── Server message handling ──────────────────────────────────────────────────
 function handleServerMessage(msg) {
   if (msg.type === 'yourId') {
-    // Server assigned us an ID — we're officially in the game
     myId  = msg.id;
     phase = 'lobby';
     process.stdout.write(clearAndHome());
 
   } else if (msg.type === 'lobby') {
-    // Lobby update: players joining/leaving or countdown ticking
     lastLobby = msg;
-    if (phase === 'lobby' && myId !== null) {
-      renderLobby(msg, myId);
-    }
+    if (phase === 'lobby' && myId !== null) renderLobby(msg, myId);
 
   } else if (msg.type === 'state') {
-    // Game state update: full authoritative state from server
-    // The map object has methods, so we inject our local copy
     msg.state.map = localMap;
     lastState = msg.state;
     phase = 'game';
-    if (myId !== null) {
-      renderFrame(lastState, myId);
-    }
+    if (myId !== null) renderFrame(lastState, myId);
 
   } else if (msg.type === 'error') {
-    // Fatal error: display and exit
     restoreTerminal();
     console.error('\n[ERROR]', msg.message);
     process.exit(1);
 
   } else if (msg.type === 'shutdown') {
-    // Graceful server shutdown
     restoreTerminal();
     console.log('\n[SERVER]', msg.message);
     process.exit(0);
   }
 }
 
-// ===== Keyboard Input =====
-// Enable raw mode to capture individual keypresses (not line-buffered)
-
-readline.emitKeypressEvents(process.stdin);
-if (process.stdin.isTTY) {
-  process.stdin.setRawMode(true); // Receive input without waiting for Enter
-} else {
-  console.error('This client must run in an interactive terminal.');
-  process.exit(1);
-}
-process.stdin.resume();
-
-/**
- * Handle keypresses and send them to the server.
- * Only sends during the game phase (not during lobby).
- */
-process.stdin.on('keypress', (str, key) => {
-  if (!key) return;
-
-  // Ctrl+C always exits cleanly
-  if (key.ctrl && key.name === 'c') {
-    restoreTerminal();
-    process.exit(0);
-  }
-
-  // Only forward keys once we're in-game and have been assigned an ID
-  if (phase !== 'game' || myId === null) return;
-
-  try {
-    socket.write(JSON.stringify({
-      type: 'key',
-      str: str || '',
-      key: { name: key.name || '', ctrl: !!key.ctrl },
-    }) + '\n');
-  } catch (_) {
-    // Silently ignore send errors
-  }
-});
-
-/**
- * Restore terminal to normal state.
- * - Show cursor (hidden during game rendering)
- * - Reset colors and formatting
- * - Exit raw mode
- */
-function restoreTerminal() {
-  process.stdout.write('\x1b[?25h\x1b[0m\n'); // Show cursor, reset colors
-  try {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
-    }
-  } catch (_) {
-    // Silently ignore errors on cleanup
-  }
-}
-
-// Restore terminal when process exits
-process.on('exit', restoreTerminal);
-
-// ─── Connecting screen ────────────────────────────────────────────────────────
+// ─── Entry point ──────────────────────────────────────────────────────────────
 process.stdout.write(clearAndHome());
-process.stdout.write([
-  '\x1b[96m+============================================+\x1b[0m',
-  '\x1b[96m|\x1b[0m  \x1b[1m\x1b[97mASCII-TACTICAL\x1b[0m                           \x1b[96m|\x1b[0m',
-  '\x1b[96m+============================================+\x1b[0m',
-  `  \x1b[90mConnecting to  \x1b[97m${HOST}:${PORT}\x1b[0m`,
-  `  \x1b[90mName           \x1b[97m${MY_NAME}\x1b[0m`,
-  `  \x1b[90mTeam           \x1b[97m${MY_TEAM}\x1b[0m`,
-  '',
-  '  \x1b[90mWaiting for server...\x1b[0m',
-  '',
-].join('\n'));
+
+if (MM_HOST) {
+  connectMatchmaking();
+} else {
+  connectToGame(GAME_HOST, GAME_PORT);
+}

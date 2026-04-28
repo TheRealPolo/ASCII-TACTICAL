@@ -40,7 +40,25 @@ function slog(level, msg) {
   process.stdout.write(`\x1b[90m${ts}\x1b[0m  ${style}${label}\x1b[0m  ${msg}\n`);
 }
 
-const PORT = parseInt(process.argv[2], 10) || 7777;
+// ─── Arg parsing ─────────────────────────────────────────────────────────────
+// Usage: node server.js [port] [--mm host[:port]] [--name "Room"] [--host publicIP]
+const _argv = process.argv.slice(2);
+let MM_HOST = null, MM_PORT = 7776, ROOM_NAME = null, PUBLIC_HOST = null;
+for (let i = 0; i < _argv.length; i++) {
+  if (_argv[i] === '--mm' && _argv[i + 1]) {
+    const [h, p] = _argv[++i].split(':');
+    MM_HOST = h;
+    if (p) MM_PORT = parseInt(p, 10) || 7776;
+  } else if (_argv[i] === '--name' && _argv[i + 1]) {
+    ROOM_NAME = _argv[++i].slice(0, 32);
+  } else if (_argv[i] === '--host' && _argv[i + 1]) {
+    PUBLIC_HOST = _argv[++i];
+  }
+}
+
+const PORT = parseInt(_argv.find(a => /^\d+$/.test(a)), 10) || 7777;
+if (!ROOM_NAME) ROOM_NAME = `Room-${PORT}`;
+
 const MIN_PLAYERS = 2;          // Minimum players needed to start a match
 const MAX_PLAYERS = 10;         // Maximum players in a single match
 const LOBBY_COUNTDOWN_S = 50;   // Seconds until match starts after min players join
@@ -60,6 +78,73 @@ let gameStarted = false;       // False in lobby, true during active round
 let lobbyCountdown = LOBBY_COUNTDOWN_S; // Countdown timer visible to players
 let countdownTimer = null;     // setInterval handle for lobby countdown
 let gameInterval = null;       // setInterval handle for game tick loop
+
+// ===== Matchmaking Integration =====
+// Registers this server with a central matchmaking hub so global players can
+// discover and join. Reconnects automatically if the MM server restarts.
+
+let mmSocket        = null;
+let mmRoomId        = null;
+let mmHeartbeatTimer = null;
+
+function mmSend(msg) {
+  if (mmSocket && !mmSocket.destroyed) {
+    try { mmSocket.write(JSON.stringify(msg) + '\n'); } catch (_) {}
+  }
+}
+
+function mmHeartbeat() {
+  if (!mmRoomId) return;
+  const connected = state ? state.players.filter(p => p.connected !== false).length : 0;
+  const phase     = gameStarted ? (state?.round?.phase || 'combat') : 'lobby';
+  mmSend({ type: 'heartbeat', id: mmRoomId, players: connected, phase });
+}
+
+function connectMatchmaking() {
+  if (!MM_HOST) return;
+
+  mmSocket = net.createConnection({ host: MM_HOST, port: MM_PORT }, () => {
+    slog('info', `Matchmaking connected  ${MM_HOST}:${MM_PORT}`);
+    mmSend({
+      type:       'register',
+      port:       PORT,
+      name:       ROOM_NAME,
+      maxPlayers: MAX_PLAYERS,
+      ...(PUBLIC_HOST ? { host: PUBLIC_HOST } : {}),
+    });
+  });
+
+  let mmBuf = '';
+  mmSocket.setEncoding('utf8');
+  mmSocket.on('data', (chunk) => {
+    mmBuf += chunk;
+    const lines = mmBuf.split('\n');
+    mmBuf = lines.pop();
+    for (const raw of lines) {
+      try {
+        const msg = JSON.parse(raw.trim());
+        if (msg.type === 'registered') {
+          mmRoomId = msg.id;
+          slog('info', `Matchmaking registered  id=${mmRoomId}`);
+          mmHeartbeatTimer = setInterval(mmHeartbeat, 10_000);
+        }
+      } catch (_) {}
+    }
+  });
+
+  mmSocket.on('close', () => {
+    clearInterval(mmHeartbeatTimer);
+    mmHeartbeatTimer = null;
+    mmRoomId  = null;
+    mmSocket  = null;
+    slog('info', 'Matchmaking disconnected — retry in 15s');
+    setTimeout(connectMatchmaking, 15_000);
+  });
+
+  mmSocket.on('error', () => {}); // handled by 'close'
+}
+
+connectMatchmaking();
 
 // ===== State Serialization =====
 /**
@@ -377,6 +462,9 @@ const server = net.createServer((socket) => {
 server.listen(PORT, () => {
   const W = 44;
   const bar = '='.repeat(W);
+  const mmLine = MM_HOST
+    ? `  \x1b[90mMatchmaking  \x1b[95m${MM_HOST}:${MM_PORT}\x1b[0m  \x1b[90mroom:\x1b[0m \x1b[97m${ROOM_NAME}\x1b[0m`
+    : `  \x1b[90mMatchmaking  \x1b[93mdisabled\x1b[0m  (use --mm <host> to enable)`;
   process.stdout.write([
     '',
     `\x1b[96m+${bar}+\x1b[0m`,
@@ -386,6 +474,7 @@ server.listen(PORT, () => {
     `  \x1b[90mPort   \x1b[97m${PORT}\x1b[0m`,
     `  \x1b[90mMin    \x1b[97m${MIN_PLAYERS} players\x1b[0m  \x1b[90mMax  \x1b[97m${MAX_PLAYERS} players\x1b[0m`,
     `  \x1b[90mJoin   \x1b[97mnode index.js [host] [name] [T|CT]\x1b[0m`,
+    mmLine,
     '',
   ].join('\n'));
 });
@@ -399,6 +488,7 @@ server.on('error', (err) => {
 process.on('SIGINT', () => {
   if (gameInterval) clearInterval(gameInterval);
   if (countdownTimer) clearInterval(countdownTimer);
+  if (mmRoomId) mmSend({ type: 'unregister', id: mmRoomId });
   broadcast({ type: 'shutdown', message: 'Server closed.' });
   server.close();
   process.exit(0);
