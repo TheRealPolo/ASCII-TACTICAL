@@ -51,6 +51,8 @@ const GAME_PORT = 7777;
 const MY_NAME   = (MM_HOST ? posArgs[0] : posArgs[1] || 'Player').slice(0, 16) || 'Player';
 const MY_TEAM   = MM_HOST  ? (posArgs[1] || 'auto') : (posArgs[2] || 'auto');
 
+process.stdout.write(`\x1b]0;${MY_NAME}\x07`);
+
 // ─── Client state ─────────────────────────────────────────────────────────────
 let myId       = null;
 let phase      = 'connecting'; // connecting | rooms | lobby | game

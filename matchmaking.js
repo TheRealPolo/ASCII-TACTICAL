@@ -138,8 +138,8 @@ server.listen(PORT, () => {
     `\x1b[95m+${bar}+\x1b[0m`,
     '',
     `  \x1b[90mPort       \x1b[97m${PORT}\x1b[0m`,
-    `  \x1b[90mHost game  \x1b[97mnode server.js --mm localhost\x1b[0m`,
-    `  \x1b[90mJoin game  \x1b[97mnode index.js --mm localhost Alice T\x1b[0m`,
+    `  \x1b[90mHost game  \x1b[97mnode server.js --mm [host]\x1b[0m`,
+    `  \x1b[90mJoin game  \x1b[97mnode index.js --mm [host] [name] [T|CT]\x1b[0m`,
     '',
   ].join('\n'));
 });

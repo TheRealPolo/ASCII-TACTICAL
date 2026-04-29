@@ -59,6 +59,8 @@ for (let i = 0; i < _argv.length; i++) {
 const PORT = parseInt(_argv.find(a => /^\d+$/.test(a)), 10) || 7777;
 if (!ROOM_NAME) ROOM_NAME = `Room-${PORT}`;
 
+process.stdout.write(`\x1b]0;SERVER [${ROOM_NAME}]\x07`);
+
 const MIN_PLAYERS = 2;          // Minimum players needed to start a match
 const MAX_PLAYERS = 10;         // Maximum players in a single match
 const LOBBY_COUNTDOWN_S = 50;   // Seconds until match starts after min players join
