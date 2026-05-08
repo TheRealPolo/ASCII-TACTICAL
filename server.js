@@ -64,7 +64,7 @@ process.stdout.write(`\x1b]0;SERVER [${ROOM_NAME}]\x07`);
 const MIN_PLAYERS = 2;          // Minimum players needed to start a match
 const MAX_PLAYERS = 10;         // Maximum players in a single match
 const LOBBY_COUNTDOWN_S = 50;   // Seconds until match starts after min players join
-const POST_MATCH_S = 15;        // Seconds to wait before server shutdown after match ends
+const POST_MATCH_S = 15;        // Seconds to wait before returning to lobby after match ends
 
 // ===== Connection Tracking =====
 // Maps client TCP connections to their metadata
@@ -272,6 +272,25 @@ function cancelCountdown() {
 
 // ===== Game Lifecycle =====
 /**
+ * Reset server to lobby state after a match ends.
+ * Clears game state, notifies connected clients, and lets them re-join.
+ */
+function returnToLobby() {
+  slog('match', 'Returning to lobby...');
+
+  gameStarted = false;
+  state       = null;
+  lobbyCountdown = LOBBY_COUNTDOWN_S;
+
+  // Reset player associations so existing connections can re-join
+  for (const conn of connections.values()) {
+    conn.playerId = null;
+  }
+
+  broadcast({ type: 'returnToLobby' });
+}
+
+/**
  * Transition from lobby to the first round and start the game loop.
  *
  * If teams are unbalanced (one team empty), cancels and waits for more players.
@@ -306,16 +325,7 @@ function beginGame() {
       clearInterval(gameInterval);
       gameInterval = null;
       slog('match', `Match over  T \x1b[91m${state.score.T}\x1b[0m : \x1b[96m${state.score.CT}\x1b[0m CT`);
-
-      // Wait POST_MATCH_S seconds before closing server
-      setTimeout(() => {
-        broadcast({
-          type: 'shutdown',
-          message: 'Match ended. Reconnect to start a new session.',
-        });
-        server.close();
-        process.exit(0);
-      }, POST_MATCH_S * 1000);
+      setTimeout(returnToLobby, POST_MATCH_S * 1000);
     }
   }, TICK_MS);
 }
@@ -370,12 +380,18 @@ function handleClientMessage(clientId, conn, msg) {
     const teamColor = team === 'T' ? '\x1b[91m' : '\x1b[96m';
     slog('join', `\x1b[97m${player.name}\x1b[0m  team ${teamColor}${team}\x1b[0m  (${state.players.length}/${MAX_PLAYERS} total)`);
 
+    // Always broadcast immediately so all players see the updated roster
+    broadcastLobby();
     // If minimum players reached, start countdown
     if (state.players.length >= MIN_PLAYERS) {
       startCountdown();
-    } else {
-      broadcastLobby(); // Update other players' lobby view
     }
+    return;
+  }
+
+  // Respond to latency probes — echo the client's timestamp back immediately
+  if (msg.type === 'ping') {
+    sendTo(clientId, { type: 'pong', t: msg.t });
     return;
   }
 

@@ -60,6 +60,20 @@ let lastState  = null;
 let lastLobby  = null;
 const localMap = createMap();
 
+// ─── Ping / latency tracking ──────────────────────────────────────────────────
+let myPing       = null;
+let pingHistory  = [];   // last 20 RTT samples (ms)
+let pingInterval = null;
+
+function startPingLoop() {
+  if (pingInterval) clearInterval(pingInterval);
+  pingInterval = setInterval(() => {
+    if (socket && !socket.destroyed) {
+      try { socket.write(JSON.stringify({ type: 'ping', t: Date.now() }) + '\n'); } catch (_) {}
+    }
+  }, 2000);
+}
+
 // ─── Room browser state ───────────────────────────────────────────────────────
 let mmRooms      = [];
 let mmSelIdx     = 0;
@@ -222,6 +236,7 @@ function connectToGame(host, port) {
 
   socket = net.createConnection({ host, port }, () => {
     socket.write(JSON.stringify({ type: 'join', name: MY_NAME, team: MY_TEAM }) + '\n');
+    startPingLoop();
   });
 
   socket.setEncoding('utf8');
@@ -273,16 +288,30 @@ function handleServerMessage(msg) {
     lastLobby = msg;
     if (phase === 'lobby' && myId !== null) renderLobby(msg, myId);
 
+  } else if (msg.type === 'pong') {
+    myPing = Date.now() - msg.t;
+    pingHistory.push(myPing);
+    if (pingHistory.length > 20) pingHistory.shift();
+
   } else if (msg.type === 'state') {
     msg.state.map = localMap;
     lastState = msg.state;
     phase = 'game';
-    if (myId !== null) renderFrame(lastState, myId);
+    if (myId !== null) renderFrame(lastState, myId, { ping: myPing, history: pingHistory });
 
   } else if (msg.type === 'error') {
     restoreTerminal();
     console.error('\n[ERROR]', msg.message);
     process.exit(1);
+
+  } else if (msg.type === 'returnToLobby') {
+    myId  = null;
+    phase = 'lobby';
+    process.stdout.write(clearAndHome());
+    // Re-join the new lobby on the same connection
+    if (socket && !socket.destroyed) {
+      try { socket.write(JSON.stringify({ type: 'join', name: MY_NAME, team: MY_TEAM }) + '\n'); } catch (_) {}
+    }
 
   } else if (msg.type === 'shutdown') {
     restoreTerminal();

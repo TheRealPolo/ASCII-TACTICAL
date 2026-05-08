@@ -49,10 +49,10 @@ const WEAPONS = {
     name: 'AWP',
     slot: 'awp',
     range: 30,
-    damage: 110,       // One-shot kill (100 HP + armor considered)
+    damage: 150,       // One-shot kill even through full armor (50 armor absorbs 75, 75 > 100 HP)
     magazine: 5,
     reserve: 30,
-    cooldownMs: 200,  // Very slow fire rate
+    cooldownMs: 1300,  // Very slow fire rate (~0.75 shots/sec)
     reloadMs: 3200,
     price: 4750,
   },
