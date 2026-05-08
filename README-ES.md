@@ -157,15 +157,16 @@ El dinero tiene un tope de **$16,000**.
 
 ### Tienda (fase compra)
 
-| Slot | Objeto      | Costo   |
-|------|-------------|---------|
-| 1    | Pistola     | $500    |
-| 2    | Rifle       | $2,500  |
-| 3    | Francotirador| $4,700  |
-| 4    | Botiquín    | $400    |
-| 5    | Chaleco     | $1,000  |
+| Slot | Objeto         | Costo   | Daño | Cargador | Alcance |
+|------|----------------|---------|------|----------|---------|
+| 1    | Glock-18       | Gratis  | 18   | 20       | 8       |
+| 2    | MP5-SD         | $1,500  | 22   | 30       | 10      |
+| 3    | AK-47          | $2,700  | 34   | 30       | 16      |
+| 4    | AWP            | $4,750  | 150  | 5        | 30      |
+| 5    | Chaleco        | $1,000  | —    | —        | —       |
 
-- **Botiquín** restaura 50 HP.
+- **Glock-18** es tu pistola predeterminada gratuita — siempre disponible, sin necesidad de compra.
+- **AWP** inflige 150 de daño, suficiente para matar de un disparo incluso con armadura completa.
 - **Chaleco** absorbe 50% del daño entrante (hasta 50 puntos).
 
 ---
@@ -288,13 +289,15 @@ MIT
 
 ## Changelog
 
-### BETAv0.3 — Multijugador global (Matchmaking)
-- Nuevo servidor de matchmaking (`matchmaking.js`) para descubrimiento de salas en tiempo real
-- Los servidores de juego se registran automáticamente con `--mm <host>`
-- Navegador visual de salas en vivo con selección por teclado (`W/S`, `ENTER`)
-- Sistema de latido (heartbeat) cada 10s para salas activas
-- Salas obsoletas se limpian automáticamente después de 35s sin latido
-- Conexión directa aún funciona para juego local (backward compatible)
+### v1.0 — Multijugador global
+- Añadido **servidor de matchmaking** (`matchmaking.js`) para descubrimiento de salas en internet
+- Los servidores de juego se registran con el flag `--mm` y se anuncian globalmente
+- **UI de navegador de salas** en el cliente: lista en vivo de partidas activas, navega con `W/S` / `↑/↓`, `ENTER` para entrar
+- Los servidores envían latido (heartbeat) cada 10s; las salas obsoletas expiran a los 35s
+- Los clientes se conectan directamente al servidor de juego (sin relay — matchmaking solo gestiona el descubrimiento)
+- Añadidos flags `--name` y `--host` a `server.js` para nombrar salas y soporte NAT
+- **Seguimiento de ping/latencia** mostrado en el HUD (media de los últimos 20 muestreos RTT)
+- Scripts `npm run server` / `npm run client` añadidos a `package.json`
 
 ### BETAv0.3 — Tienda mejorada y armas de CS
 - Se reemplazaron las armas genéricas por el arsenal estilo CS: **Glock-18** (gratis), **MP5-SD**, **AK-47**, **AWP**

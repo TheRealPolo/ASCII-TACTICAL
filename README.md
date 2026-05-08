@@ -79,12 +79,14 @@ node matchmaking.js
 
 ```bash
 node server.js 7777 --mm mm.yourdomain.com --name "My Room"
+# or: node server.js 7777 --mm [IP] --name "My Room"
 ```
 
 **3. Join via room browser** (on any machine with internet):
 
 ```bash
 node index.js --mm mm.yourdomain.com Alice T
+# or: node index.js --mm [IP] Alice T
 ```
 
 This shows all live rooms. Navigate with `W/S` or `↑/↓`, press `ENTER` to join, `R` to refresh, `^C` to quit.
@@ -157,15 +159,16 @@ Money is capped at **$16,000**.
 
 ### Shop (buy phase)
 
-| Slot | Item           | Cost    |
-|------|----------------|---------|
-| 1    | Pistol         | $500    |
-| 2    | Rifle          | $2,500  |
-| 3    | Sniper         | $4,700  |
-| 4    | Medkit         | $400    |
-| 5    | Armor Vest     | $1,000  |
+| Slot | Item           | Cost    | Damage | Magazine | Range |
+|------|----------------|---------|--------|----------|-------|
+| 1    | Glock-18       | Free    | 18     | 20       | 8     |
+| 2    | MP5-SD         | $1,500  | 22     | 30       | 10    |
+| 3    | AK-47          | $2,700  | 34     | 30       | 16    |
+| 4    | AWP            | $4,750  | 150    | 5        | 30    |
+| 5    | Armor Vest     | $1,000  | —      | —        | —     |
 
-- **Medkit** restores 50 HP.
+- **Glock-18** is your free default sidearm — always available, no purchase needed.
+- **AWP** deals 150 damage, enough for a one-shot kill even through full armor.
 - **Armor Vest** absorbs 50% of incoming damage (up to 50 points).
 
 ---
@@ -379,22 +382,21 @@ The server broadcasts a game state object every tick:
 
 **Client → Server:**
 ```javascript
-{ "action": "move", "direction": "w" }           // WASD
-{ "action": "rotate", "direction": "q" }         // Q/E
-{ "action": "shoot" }
-{ "action": "reload" }
-{ "action": "plant" }
-{ "action": "defuse" }
-{ "action": "toggleBuy" }
-{ "action": "buy", "item": 1 }                   // 1-5
-{ "action": "switchWeapon", "weaponIndex": 0 }
+{ "type": "join",  "name": "Alice", "team": "T" }   // Initial handshake
+{ "type": "key",   "str": "w",  "key": { "name": "w",      "ctrl": false } }  // Move
+{ "type": "key",   "str": " ",  "key": { "name": "space",  "ctrl": false } }  // Shoot
+{ "type": "key",   "str": "f",  "key": { "name": "f",      "ctrl": false } }  // Plant/Defuse
+{ "type": "key",   "str": "b",  "key": { "name": "b",      "ctrl": false } }  // Buy menu
+{ "type": "ping",  "t": 1234567890 }                // Latency probe
 ```
 
 **Server → Client:**
 ```javascript
-{ "type": "state", "data": {...gameState...} }
-{ "type": "chat", "player": "Alice", "message": "Nice shot!" }
-{ "type": "error", "message": "Invalid action" }
+{ "type": "yourId",  "id": 1, "team": "T" }
+{ "type": "lobby",   "players": [...], "countdown": 9, "minPlayers": 2, "maxPlayers": 10 }
+{ "type": "state",   "state": { players, score, round, eventLog, matchOver, ... } }
+{ "type": "pong",    "t": 1234567890 }
+{ "type": "error",   "message": "..." }
 ```
 
 ---
@@ -403,49 +405,43 @@ The server broadcasts a game state object every tick:
 
 #### Add a New Weapon
 
-Edit `src/config.js`:
+Edit `src/config.js`, add an entry to the `WEAPONS` object:
 
 ```javascript
-export const WEAPONS = {
-  rifle: {
-    name: "Rifle",
-    damage: 30,
-    fireRate: 100,  // ms between shots
-    reloadTime: 2000,
-    ammo: 30,
-    cost: 2500
-  },
-  // Add your weapon here:
+const WEAPONS = {
+  // ... existing weapons ...
   flamethrower: {
-    name: "Flamethrower",
+    name: 'Flamethrower',
+    slot: 'heavy',
+    range: 5,
     damage: 15,
-    fireRate: 50,
-    reloadTime: 3000,
-    ammo: 100,
-    cost: 5000
-  }
+    magazine: 100,
+    reserve: 200,
+    cooldownMs: 50,
+    reloadMs: 3000,
+    price: 5000,
+  },
 };
 ```
 
-Then update `src/combat.js` to handle special behavior (e.g., area damage).
+Then add `'flamethrower'` to `WEAPON_SLOTS` and update `src/combat.js` for any special behavior (e.g., area damage).
 
 #### Create a Custom Map
 
-Edit `src/map.js`, replace the `MAP` array:
+Edit `src/map.js`, replace the `RAW_MAP` array:
 
 ```javascript
-export const MAP = [
-  "#####################",
-  "#........A..........#",
-  "#............#......#",
-  "#...T........#..C...#",
-  "#...B...............#",
-  "#####################",
-  // ...
+const RAW_MAP = [
+  "##############################",
+  "#........A..........#.......B#",
+  "#............#...............#",
+  "#............................#",
+  "#............................#",
+  // ... 20 rows total
 ];
 ```
 
-Ensure the map is 30 chars wide and 20 chars tall. Use:
+Ensure the map is exactly **30 chars wide** and **20 rows tall**. Use:
 - `#` for walls
 - `.` for floors
 - `A`, `B` for bomb sites
@@ -532,6 +528,16 @@ MIT
 ---
 
 ## Changelog
+
+### v1.0 — Global Multiplayer
+- Added **matchmaking server** (`matchmaking.js`) for internet-wide room discovery
+- Game servers can register with `--mm` flag and advertise themselves globally
+- **Room browser UI** in the client: live list of active games, navigate with `W/S` / `↑/↓`, `ENTER` to join
+- Servers auto-heartbeat every 10s; stale rooms expire after 35s
+- Clients connect directly to game servers (no relay — matchmaking only handles discovery)
+- Added `--name` and `--host` flags to `server.js` for room naming and NAT traversal
+- **Ping / latency tracking** displayed in the HUD (rolling average of last 20 RTT samples)
+- `npm run server` / `npm run client` scripts added to `package.json`
 
 ### BETAv0.3 — Shop overhaul & CS weapons
 - Replaced generic weapons with CS-style loadout: **Glock-18** (free), **MP5-SD**, **AK-47**, **AWP**
