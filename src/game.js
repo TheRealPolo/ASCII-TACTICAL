@@ -15,10 +15,10 @@
  *   CT wins: Bomb defused, OR all T are eliminated, OR time runs out
  */
 
-const { TICK_MS, WEAPONS, WEAPON_SLOTS, EQUIPMENT, ECONOMY, ROUND, DIRECTIONS } = require('./config');
+const { TICK_MS, WEAPONS, WEAPON_SLOTS, GRENADES, GRENADE_SLOTS, EQUIPMENT, ECONOMY, ROUND, DIRECTIONS } = require('./config');
 const { createMap } = require('./map');
 const { createPlayer, resetForRound, setWeapon } = require('./player');
-const { tryShoot, tryReload, finalizeReloads, chebyshevDistance } = require('./combat');
+const { tryShoot, tryReload, finalizeReloads, chebyshevDistance, hasLineOfSight, isSmokeAt } = require('./combat');
 
 /**
  * Get current server time in milliseconds.
@@ -64,6 +64,9 @@ function createState() {
     maxRounds: ROUND.maxRounds,
     winsRequired: ROUND.winsRequired,
     events: [],                         // Events this tick (kills, shots, etc.)
+    projectiles: [],                    // Active grenade projectiles in flight/fuse
+    smokeClouds: [],                    // Active smoke cloud areas
+    nextProjId: 1,                      // Auto-increment ID for projectiles/clouds
   };
 }
 
@@ -85,6 +88,10 @@ function startNewRound(state, first = false) {
     planted: false, x: null, y: null, plantedAt: 0, site: null, defuser: null, defuseStart: 0,
   };
   state.round.lastResult = '';
+
+  // Clear all grenades and effects from previous round
+  state.projectiles = [];
+  state.smokeClouds = [];
 
   // Respawn all players
   for (const p of state.players) {
@@ -166,12 +173,15 @@ function handlePlayerKey(state, playerId, str, key) {
     return;
   }
 
-  // Buy menu shortcuts — keys match weapon slots: 2=SMG, 3=Rifle, 4=AWP, 5=Armor
+  // Buy menu shortcuts — 2=SMG, 3=Rifle, 4=AWP, 5=Armor, 6=Frag, 7=Smoke, 8=Flash
   if (player.buyMenuOpen) {
     if (str === '2') return buy(state, player, 'smg');
     if (str === '3') return buy(state, player, 'rifle');
     if (str === '4') return buy(state, player, 'awp');
     if (str === '5') return buy(state, player, 'armor');
+    if (str === '6') return buy(state, player, 'frag');
+    if (str === '7') return buy(state, player, 'smoke');
+    if (str === '8') return buy(state, player, 'flash');
   }
 
   if (!player.alive) {
@@ -217,7 +227,19 @@ function handlePlayerKey(state, playerId, str, key) {
   // Shoot (Space) - combat phase only
   if (key.name === 'space' && state.round.phase === 'combat') {
     const dir = DIRECTIONS[player.facing];
-    tryShoot(player, state.players, state.map, dir, state.now, state.events);
+    tryShoot(player, state.players, state.map, dir, state.now, state.events, state.smokeClouds);
+    return;
+  }
+
+  // Throw grenade (G) - combat phase only
+  if (key.name === 'g' && state.round.phase === 'combat') {
+    tryThrowGrenade(state, player);
+    return;
+  }
+
+  // Cycle selected grenade type (H)
+  if (key.name === 'h') {
+    cycleGrenade(player);
     return;
   }
 
@@ -324,6 +346,186 @@ function buy(state, player, item) {
     pushLog(state, `[${player.name}] Bought Armor Vest.`);
     return;
   }
+
+  // ===== Grenades =====
+  if (GRENADES[item]) {
+    const g = GRENADES[item];
+    const maxCarry = 2;
+    if (player.grenades[item] >= maxCarry) {
+      pushLog(state, `[${player.name}] Already carrying max ${g.name} (${maxCarry}).`);
+      return;
+    }
+    if (player.money < g.price) {
+      pushLog(state, `[${player.name}] Need $${g.price} for ${g.name} (have $${player.money}).`);
+      return;
+    }
+    player.money -= g.price;
+    player.grenades[item] += 1;
+    player.selectedGrenade = item;
+    pushLog(state, `[${player.name}] Bought ${g.name}. (${player.grenades[item]}x)`);
+    return;
+  }
+}
+
+// ===== Grenade / Utility System =====
+
+/**
+ * Cycle the player's selected grenade to the next type they own.
+ */
+function cycleGrenade(player) {
+  const idx = GRENADE_SLOTS.indexOf(player.selectedGrenade);
+  for (let i = 1; i <= GRENADE_SLOTS.length; i++) {
+    const next = GRENADE_SLOTS[(idx + i) % GRENADE_SLOTS.length];
+    if (player.grenades[next] > 0) {
+      player.selectedGrenade = next;
+      return;
+    }
+  }
+  // No grenades at all — just advance the label anyway so player sees feedback
+  player.selectedGrenade = GRENADE_SLOTS[(idx + 1) % GRENADE_SLOTS.length];
+}
+
+/**
+ * Walk in direction (dx, dy) from `from` for up to `steps` tiles.
+ * Stops one tile before a wall or map edge.
+ *
+ * @returns {{ x, y }} Landing position
+ */
+function traceGrenadePath(from, dx, dy, steps, map) {
+  let x = from.x;
+  let y = from.y;
+  for (let i = 0; i < steps; i++) {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (!map.inBounds(nx, ny) || map.blocksLOS(nx, ny)) break;
+    x = nx;
+    y = ny;
+  }
+  return { x, y };
+}
+
+/**
+ * Throw the player's currently selected grenade in their facing direction.
+ */
+function tryThrowGrenade(state, player) {
+  if (!player.alive) return;
+
+  const type = player.selectedGrenade;
+  if (player.grenades[type] <= 0) {
+    pushLog(state, `[${player.name}] No ${GRENADES[type].name} equipped. Press H to cycle.`);
+    return;
+  }
+
+  const cfg = GRENADES[type];
+  const dir = DIRECTIONS[player.facing];
+  const landing = traceGrenadePath(player.pos, dir.dx, dir.dy, cfg.travelSteps, state.map);
+
+  player.grenades[type] -= 1;
+
+  state.projectiles.push({
+    id: state.nextProjId++,
+    type,
+    throwerId: player.id,
+    pos: { x: landing.x, y: landing.y },
+    detonateAt: state.now + cfg.fuseMs,
+  });
+
+  pushLog(state, `[${player.name}] Threw ${cfg.name}!`);
+}
+
+/**
+ * Apply grenade damage to one victim.
+ * Thrower gets kill credit; handles armor absorption.
+ */
+function applyGrenadeHit(thrower, victim, damage, grenadeType, state) {
+  if (victim.armor > 0) {
+    const absorbed = Math.min(victim.armor, Math.floor(damage / 2));
+    victim.armor -= absorbed;
+    damage -= absorbed;
+  }
+  victim.health -= damage;
+
+  if (victim.health <= 0) {
+    victim.health = 0;
+    victim.alive = false;
+    victim.deaths += 1;
+    if (thrower) {
+      thrower.kills += 1;
+      thrower.money = Math.min(ECONOMY.maxMoney, thrower.money + ECONOMY.killReward);
+    }
+    state.events.push({
+      type: 'grenade-kill',
+      shooterId: thrower ? thrower.id : null,
+      victimId: victim.id,
+      grenade: grenadeType,
+      at: state.now,
+    });
+  }
+}
+
+/**
+ * Detonate a grenade projectile, applying its type-specific effect.
+ */
+function detonateGrenade(state, proj) {
+  const cfg = GRENADES[proj.type];
+  const thrower = state.players.find((p) => p.id === proj.throwerId) || null;
+
+  if (proj.type === 'frag') {
+    for (const p of state.players) {
+      if (!p.alive) continue;
+      const d = chebyshevDistance(p.pos, proj.pos);
+      if (d > cfg.radius) continue;
+      const t = cfg.radius > 0 ? d / cfg.radius : 0;
+      const dmg = Math.round(cfg.maxDamage - (cfg.maxDamage - cfg.minDamage) * t);
+      applyGrenadeHit(thrower, p, dmg, 'frag', state);
+    }
+    pushLog(state, `[FRAG] Grenade exploded at (${proj.pos.x},${proj.pos.y})!`);
+
+  } else if (proj.type === 'smoke') {
+    state.smokeClouds.push({
+      id: state.nextProjId++,
+      pos: { x: proj.pos.x, y: proj.pos.y },
+      radius: cfg.radius,
+      expiresAt: state.now + cfg.durationMs,
+    });
+    pushLog(state, '[SMOKE] Smoke grenade deployed!');
+
+  } else if (proj.type === 'flash') {
+    for (const p of state.players) {
+      if (!p.alive) continue;
+      const d = chebyshevDistance(p.pos, proj.pos);
+      if (d > cfg.radius) continue;
+      // Walls block the flash
+      if (!hasLineOfSight(state.map, proj.pos.x, proj.pos.y, p.pos.x, p.pos.y)) continue;
+      const t = cfg.radius > 0 ? d / cfg.radius : 0;
+      const blindMs = Math.round(cfg.blindMs * (1 - t * 0.7));
+      p.blindUntil = Math.max(p.blindUntil, state.now + blindMs);
+    }
+    pushLog(state, '[FLASH] Flash grenade detonated!');
+  }
+}
+
+/**
+ * Tick all active projectiles: detonate ready ones, expire smoke clouds.
+ */
+function updateProjectiles(state) {
+  const remaining = [];
+  for (const proj of state.projectiles) {
+    if (state.now >= proj.detonateAt) {
+      detonateGrenade(state, proj);
+    } else {
+      remaining.push(proj);
+    }
+  }
+  state.projectiles = remaining;
+
+  state.smokeClouds = state.smokeClouds.filter((s) => state.now < s.expiresAt);
+
+  for (const p of state.players) {
+    if (p.blindUntil > 0 && state.now >= p.blindUntil) {
+      p.blindUntil = 0;
+    }
+  }
 }
 
 // ===== Game Tick =====
@@ -354,6 +556,7 @@ function tick(state) {
     handlePlantProgress(state);                  // Update bomb planting progress
     handleDefuseProgress(state);                 // Update bomb defuse progress
     handleBombFuse(state);                       // Check if bomb explodes
+    updateProjectiles(state);                    // Detonate grenades, expire smoke/flash
   } else {
     // Even in other phases, finalize reloads (players might reload while shopping)
     finalizeReloads(state.players, state.now);
@@ -592,16 +795,25 @@ function finishRound(state, result) {
  */
 function drainEvents(state) {
   for (const e of state.events) {
-    if (e.type === 'kill') {
+    if (e.type === 'kill' || e.type === 'grenade-kill') {
       const shooter = state.players.find((p) => p.id === e.shooterId);
       const victim  = state.players.find((p) => p.id === e.victimId);
 
-      if (!shooter || !victim) {
-        continue;
+      if (!victim) continue;
+
+      // Resolve weapon/grenade display name
+      let weaponName;
+      if (e.type === 'grenade-kill') {
+        weaponName = GRENADES[e.grenade] ? GRENADES[e.grenade].name : e.grenade;
+      } else {
+        weaponName = WEAPONS[e.weapon] ? WEAPONS[e.weapon].name : e.weapon;
       }
 
-      // Log the kill
-      pushLog(state, `[KILL] ${shooter.name} (${shooter.team}) eliminated ${victim.name} (${victim.team}) with ${WEAPONS[e.weapon].name}`);
+      if (shooter) {
+        pushLog(state, `[KILL] ${shooter.name} (${shooter.team}) eliminated ${victim.name} (${victim.team}) with ${weaponName}`);
+      } else {
+        pushLog(state, `[KILL] ${victim.name} (${victim.team}) was eliminated by ${weaponName}`);
+      }
 
       // If victim had the bomb, give it to another T player
       if (victim.hasBomb) {

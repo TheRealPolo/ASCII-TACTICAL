@@ -114,10 +114,45 @@ const DIRECTIONS = [
 // Ordered list of weapon slot keys — used for display and switch shortcuts
 const WEAPON_SLOTS = ['pistol', 'smg', 'rifle', 'awp'];
 
+// ===== Grenades / Utility =====
+// Three utility types: explosive frag, vision-blocking smoke, blinding flash.
+// Grenades land instantly at the calculated target tile; fuse counts down there.
+const GRENADES = {
+  frag: {
+    name: 'Frag Grenade',
+    price: 300,
+    travelSteps: 6,   // Max tiles the grenade travels before landing
+    fuseMs: 2000,     // Milliseconds from throw to detonation
+    radius: 3,        // Chebyshev blast radius
+    maxDamage: 80,    // Damage at ground zero
+    minDamage: 20,    // Damage at edge of radius
+  },
+  smoke: {
+    name: 'Smoke Grenade',
+    price: 300,
+    travelSteps: 6,
+    fuseMs: 2000,
+    radius: 2,        // Smoke cloud Chebyshev radius
+    durationMs: 8000, // How long the cloud persists
+  },
+  flash: {
+    name: 'Flash Grenade',
+    price: 200,
+    travelSteps: 5,
+    fuseMs: 1500,
+    radius: 4,        // Flash effect Chebyshev radius (walls block it)
+    blindMs: 2000,    // Max blind duration (full at center, less at edge)
+  },
+};
+
+const GRENADE_SLOTS = ['frag', 'smoke', 'flash'];
+
 module.exports = {
   TICK_MS,
   WEAPONS,
   WEAPON_SLOTS,
+  GRENADES,
+  GRENADE_SLOTS,
   EQUIPMENT,
   ECONOMY,
   ROUND,

@@ -14,7 +14,7 @@
  *   { type: "unregister", id }
  *
  * ===== Client → MM =====
- *   { type: "list" }  →  { type: "rooms", rooms: [...] }
+ *   { type: "list" }  →  { type: "rooms", rooms: [...] } 
  */
 
 'use strict';

@@ -79,14 +79,12 @@ node matchmaking.js
 
 ```bash
 node server.js 7777 --mm mm.yourdomain.com --name "My Room"
-# or: node server.js 7777 --mm [IP] --name "My Room"
 ```
 
 **3. Join via room browser** (on any machine with internet):
 
 ```bash
 node index.js --mm mm.yourdomain.com Alice T
-# or: node index.js --mm [IP] Alice T
 ```
 
 This shows all live rooms. Navigate with `W/S` or `↑/↓`, press `ENTER` to join, `R` to refresh, `^C` to quit.

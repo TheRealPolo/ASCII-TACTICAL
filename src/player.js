@@ -58,6 +58,11 @@ function createPlayer({ team, name, spawn, spawnIdx = 0, weapon = 'pistol' }) {
     plantingUntil: 0,                    // Timestamp when planting finishes
     defusingUntil: 0,                    // Timestamp when defusing finishes
 
+    // === Grenades / Utility ===
+    grenades: { frag: 0, smoke: 0, flash: 0 }, // Carried grenade counts
+    selectedGrenade: 'frag',             // Active grenade type for G key
+    blindUntil: 0,                       // Timestamp when flash blindness expires
+
     // === UI State ===
     buyMenuOpen: false,                  // Shop is visible on client
     showStats: false,                    // Stats table visible on client
@@ -92,6 +97,11 @@ function resetForRound(player, map) {
 
   // Clear bomb
   player.hasBomb = false;
+
+  // Reset grenades
+  player.grenades = { frag: 0, smoke: 0, flash: 0 };
+  player.selectedGrenade = 'frag';
+  player.blindUntil = 0;
 
   // Reset all per-weapon ammo stores to full
   for (const [key, wk] of Object.entries(WEAPONS)) {

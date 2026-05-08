@@ -132,11 +132,27 @@ function findNearestVisibleEnemy(shooter, players, map, range) {
 }
 
 /**
+ * Return true if position (x, y) is inside any active smoke cloud.
+ *
+ * @param {array} smokeClouds - Active smoke clouds from game state
+ * @param {number} x, y - Position to test
+ * @returns {boolean}
+ */
+function isSmokeAt(smokeClouds, x, y) {
+  if (!smokeClouds || smokeClouds.length === 0) return false;
+  for (const s of smokeClouds) {
+    if (chebyshevDistance(s.pos, { x, y }) <= s.radius) return true;
+  }
+  return false;
+}
+
+/**
  * Raycast a projectile from a shooter in a direction.
  *
  * Traces a ray step-by-step until it hits something:
  *   - An enemy → return info about hit
  *   - A wall/cover → return info about wall
+ *   - A smoke cloud → return info (smoke blocks shots)
  *   - Map edge → return last valid position
  *   - Max range → return final position
  *
@@ -145,9 +161,10 @@ function findNearestVisibleEnemy(shooter, players, map, range) {
  * @param {array} players - All players in the game
  * @param {object} map - Map for obstacle checks
  * @param {number} range - Maximum distance bullet travels
- * @returns {object} { hit: 'wall'|'enemy'|'edge'|'range', target?, x, y }
+ * @param {array} [smokeClouds] - Active smoke clouds (optional)
+ * @returns {object} { hit: 'wall'|'smoke'|'enemy'|'edge'|'range', target?, x, y }
  */
-function rayCastShoot(shooter, dx, dy, players, map, range) {
+function rayCastShoot(shooter, dx, dy, players, map, range, smokeClouds = []) {
   let x = shooter.pos.x;
   let y = shooter.pos.y;
 
@@ -164,6 +181,11 @@ function rayCastShoot(shooter, dx, dy, players, map, range) {
     // Hit wall or cover
     if (map.blocksLOS(x, y)) {
       return { hit: 'wall', x, y };
+    }
+
+    // Smoke blocks line-of-sight and bullets
+    if (isSmokeAt(smokeClouds, x, y)) {
+      return { hit: 'smoke', x, y };
     }
 
     // Check if ray hits a player
@@ -201,9 +223,10 @@ function rayCastShoot(shooter, dx, dy, players, map, range) {
  * @param {object} dirVec - Direction with { dx, dy }
  * @param {number} now - Current server timestamp
  * @param {array} events - Event list to log shot event
+ * @param {array} [smokeClouds] - Active smoke clouds for LOS blocking
  * @returns {object|null} Shot event object, or null if blocked
  */
-function tryShoot(shooter, players, map, dirVec, now, events) {
+function tryShoot(shooter, players, map, dirVec, now, events, smokeClouds = []) {
   // Check if player is alive
   if (!shooter.alive) {
     return null;
@@ -232,8 +255,8 @@ function tryShoot(shooter, players, map, dirVec, now, events) {
   shooter.lastShotAt = now;
   shooter.ammo.current -= 1;
 
-  // Raycast the projectile
-  const result = rayCastShoot(shooter, dirVec.dx, dirVec.dy, players, map, w.range);
+  // Raycast the projectile (smoke clouds block the shot)
+  const result = rayCastShoot(shooter, dirVec.dx, dirVec.dy, players, map, w.range, smokeClouds);
 
   // Create shot event
   const event = {
@@ -321,7 +344,7 @@ function applyDamage(shooter, victim, damage, events, now) {
  * @param {array} events - Event list
  * @returns {object|null} { hit: true } on success, null on failure
  */
-function tryShootAt(shooter, target, players, map, now, events) {
+function tryShootAt(shooter, target, players, map, now, events, smokeClouds = []) {
   if (!shooter.alive) {
     return null;
   }
@@ -354,6 +377,11 @@ function tryShootAt(shooter, target, players, map, now, events) {
 
   if (!hasLineOfSight(map, shooter.pos.x, shooter.pos.y, target.pos.x, target.pos.y)) {
     events.push({ type: 'shot', shooterId: shooter.id, miss: 'los', at: now });
+    return null;
+  }
+
+  if (isSmokeAt(smokeClouds, target.pos.x, target.pos.y)) {
+    events.push({ type: 'shot', shooterId: shooter.id, miss: 'smoke', at: now });
     return null;
   }
 
@@ -450,6 +478,7 @@ function finalizeReloads(players, now) {
 module.exports = {
   lineTiles,
   hasLineOfSight,
+  isSmokeAt,
   chebyshevDistance,
   findNearestVisibleEnemy,
   rayCastShoot,

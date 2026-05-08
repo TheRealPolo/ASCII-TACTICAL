@@ -9,7 +9,7 @@
  * Frame height: 24 rows    (1 top + 1 header + 1 sep + 20 map + 1 bottom)
  */
 
-const { WEAPONS, WEAPON_SLOTS, EQUIPMENT, DIRECTIONS } = require('./config');
+const { WEAPONS, WEAPON_SLOTS, GRENADES, GRENADE_SLOTS, EQUIPMENT, DIRECTIONS } = require('./config');
 
 // Directional glyph for the aim-line overlay (matches DIRECTIONS index 0–7)
 const AIM_GLYPHS = ['|', '/', '-', '\\', '|', '/', '-', '\\'];
@@ -85,20 +85,30 @@ function colorTile(c) {
   }
 }
 
+// ─── Smoke-cloud helper ────────────────────────────────────────────────────────
+function isSmokeAt(smokeClouds, x, y) {
+  if (!smokeClouds || smokeClouds.length === 0) return false;
+  for (const s of smokeClouds) {
+    const dx = Math.abs(s.pos.x - x);
+    const dy = Math.abs(s.pos.y - y);
+    if (Math.max(dx, dy) <= s.radius) return true;
+  }
+  return false;
+}
+
 // ─── Aim-line raycast (visual targeting reticle) ─────────────────────────────
 // Walks the local player's facing direction tile-by-tile, stopping when it
-// hits a wall, cover, an enemy, or runs out of range.
+// hits a wall, cover, an enemy, smoke, or runs out of range.
+// Returns null when the player is blinded (flash effect active).
 //
 // Returns: { path: [{x,y}, ...], endHit, target?, facing }
-//   path     – walkable tiles from the player to the stop point (exclusive)
-//   endHit   – 'wall' | 'enemy' | 'edge' | 'range'
-//   target   – the player struck (only when endHit === 'enemy')
-//   facing   – the player's facing index (0–7, used to pick a glyph)
 function buildAimOverlay(state, me) {
   if (!me || !me.alive) return null;
+  if (me.blindUntil && me.blindUntil > state.now) return null; // Blinded by flash
 
   const dir = DIRECTIONS[me.facing];
   const range = WEAPONS[me.weapon].range;
+  const smokeClouds = state.smokeClouds || [];
 
   const path = [];
   let x = me.pos.x;
@@ -110,12 +120,14 @@ function buildAimOverlay(state, me) {
     x += dir.dx;
     y += dir.dy;
 
-    if (!state.map.inBounds(x, y))   { endHit = 'edge'; break; }
+    if (!state.map.inBounds(x, y))            { endHit = 'edge';  break; }
 
     const hit = state.players.find(p => p.alive && p.id !== me.id && p.pos.x === x && p.pos.y === y);
-    if (hit)                          { endHit = 'enemy'; target = hit; break; }
+    if (hit)                                   { endHit = 'enemy'; target = hit; break; }
 
-    if (state.map.blocksLOS(x, y))    { endHit = 'wall'; break; }
+    if (state.map.blocksLOS(x, y))             { endHit = 'wall';  break; }
+
+    if (isSmokeAt(smokeClouds, x, y))          { endHit = 'smoke'; break; }
 
     path.push({ x, y });
   }
@@ -145,9 +157,25 @@ function pingGraph(history) {
 function renderMap(state, myId) {
   const { map, players, round } = state;
   const me = players.find(p => p.id === myId);
+  const smokeClouds  = state.smokeClouds  || [];
+  const projectiles  = state.projectiles  || [];
 
   const grid = [];
   for (let y = 0; y < map.height; y++) grid.push(map.tiles[y].slice());
+
+  // Smoke tiles (drawn below everything else)
+  for (const s of smokeClouds) {
+    for (let dy = -s.radius; dy <= s.radius; dy++) {
+      for (let dx = -s.radius; dx <= s.radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) > s.radius) continue;
+        const sx = s.pos.x + dx;
+        const sy = s.pos.y + dy;
+        if (sy >= 0 && sy < map.height && sx >= 0 && sx < map.width) {
+          if (map.tiles[sy][sx] === '.') grid[sy][sx] = { smoke: true };
+        }
+      }
+    }
+  }
 
   for (const p of players) {
     if (!p.alive) continue;
@@ -157,11 +185,33 @@ function renderMap(state, myId) {
     grid[round.bomb.y][round.bomb.x] = { bomb: true };
   }
 
+  // Grenades in flight / waiting to detonate
+  for (const proj of projectiles) {
+    const existing = grid[proj.pos.y][proj.pos.x];
+    // Don't overwrite players or bomb, but overwrite floor/smoke tiles
+    if (!existing || !existing.player) {
+      grid[proj.pos.y][proj.pos.x] = { grenade: proj };
+    }
+  }
+
   // Compute the local player's aim path
-  const aim          = buildAimOverlay(state, me);
-  const aimSet       = aim ? new Set(aim.path.map(t => t.x + ',' + t.y)) : null;
-  const aimGlyph     = aim ? AIM_GLYPHS[aim.facing] : null;
-  const lockedOnId   = aim && aim.endHit === 'enemy' ? aim.target.id : null;
+  const aim        = buildAimOverlay(state, me);
+  const aimSet     = aim ? new Set(aim.path.map(t => t.x + ',' + t.y)) : null;
+  const aimGlyph   = aim ? AIM_GLYPHS[aim.facing] : null;
+  const lockedOnId = aim && aim.endHit === 'enemy' ? aim.target.id : null;
+
+  // Flash blind: replace entire map with static noise for the local player
+  const blinded = me && me.blindUntil && me.blindUntil > state.now;
+
+  if (blinded) {
+    return Array.from({ length: map.height }, () => {
+      let line = '';
+      for (let x = 0; x < map.width; x++) {
+        line += col(C.bwhite, Math.random() > 0.5 ? '▓' : '░');
+      }
+      return line;
+    });
+  }
 
   return Array.from({ length: map.height }, (_, y) => {
     let line = '';
@@ -169,12 +219,22 @@ function renderMap(state, myId) {
       const cell = grid[y][x];
 
       if (typeof cell !== 'object') {
-        // Aim path overlay on plain floor tiles only (keeps A/B/water/cover legible)
         if (aimSet && cell === '.' && aimSet.has(x + ',' + y)) {
           line += col(C.byellow + C.bold, aimGlyph);
         } else {
           line += colorTile(cell);
         }
+      } else if (cell.smoke) {
+        line += col(C.gray, '░');
+      } else if (cell.grenade) {
+        const proj = cell.grenade;
+        const timeLeft = proj.detonateAt - state.now;
+        const blink = Math.floor(Date.now() / 250) % 2 === 0;
+        let style;
+        if      (proj.type === 'frag')  style = blink ? C.bred + C.bold  : C.bred;
+        else if (proj.type === 'smoke') style = blink ? C.gray + C.bold  : C.gray;
+        else                            style = blink ? C.bwhite + C.bold : C.byellow;
+        line += col(style, 'o');
       } else if (cell.bomb) {
         const blink = Math.floor(Date.now() / 300) % 2 === 0;
         line += blink
@@ -187,7 +247,7 @@ function renderMap(state, myId) {
 
         let style;
         if (p.id === myId)             style = C.bold + tc + C.inv;
-        else if (p.id === lockedOnId)  style = C.bold + C.bgYellow + '\x1b[30m';  // "locked on"
+        else if (p.id === lockedOnId)  style = C.bold + C.bgYellow + '\x1b[30m';
         else                           style = tc;
         line += col(style, glyph);
       }
@@ -242,9 +302,22 @@ function buildHUD(state, myId, pingInfo = null) {
     rows.push(padR(` ${col(C.gray, 'AR')} ${bar(me.armor, 100, 8, C.bcyan)} ${col(C.bcyan, String(me.armor).padStart(3))}  ${col(C.byellow, w.name)}${reload}`, HUD_W));
 
     const pingDisp = pingInfo != null
-      ? `  ${col(pingColor(pingInfo.ping), '●')} ${col(C.gray, pingInfo.ping + 'ms')}`
+      ? ` ${col(pingColor(pingInfo.ping), '●')}${col(C.gray, pingInfo.ping + 'ms')}`
       : '';
-    rows.push(padR(` ${col(C.gray, 'AMMO')} ${col(C.bwhite + C.bold, me.ammo.current + '/' + me.ammo.reserve)}  ${col(C.gray, 'CASH')} ${col(C.bgreen + C.bold, '$' + me.money)}${pingDisp}`, HUD_W));
+
+    // Grenade indicator: selected type in brackets, counts for all three
+    const selG = me.selectedGrenade || 'frag';
+    const grenadeDisp = GRENADE_SLOTS.map(t => {
+      const cnt = (me.grenades && me.grenades[t]) || 0;
+      const label = { frag: 'F', smoke: 'S', flash: '!' }[t];
+      const active = t === selG;
+      const color = cnt > 0
+        ? (active ? C.byellow + C.bold : C.bwhite)
+        : C.gray + C.dim;
+      return col(color, active ? `[${label}${cnt}]` : `${label}${cnt}`);
+    }).join('');
+
+    rows.push(padR(` ${col(C.gray, 'AMMO')} ${col(C.bwhite + C.bold, me.ammo.current + '/' + me.ammo.reserve)}  ${grenadeDisp}  ${col(C.gray, 'CASH')} ${col(C.bgreen + C.bold, '$' + me.money)}${pingDisp}`, HUD_W));
   } else {
     rows.push(padR(col(C.gray, '  (spectating)'), HUD_W));
     rows.push(''); rows.push(''); rows.push('');
@@ -329,10 +402,33 @@ function buildBuyRows(me) {
     return padR(` ${numTag} ${owned ? col(C.gray, nameStr) : nameStr} ${priceStr}${ownedTag}`, HUD_W);
   }
 
+  function grenadeLine(key, num) {
+    const g = GRENADES[key];
+    const cnt = (me.grenades && me.grenades[key]) || 0;
+    const maxCarry = 2;
+    const full = cnt >= maxCarry;
+    const numTag = col(full ? C.gray : C.byellow + C.bold, `[${num}]`);
+    const nameStr = padR(g.name, 14);
+    const priceStr = col(full ? C.gray : C.bgreen, full ? 'max' : `$${g.price}`);
+    const cntTag = col(C.gray + C.dim, ` ${cnt}/${maxCarry}`);
+    return padR(` ${numTag} ${full ? col(C.gray, nameStr) : nameStr} ${priceStr}${cntTag}`, HUD_W);
+  }
+
   const armorOwned = me.armor >= EQUIPMENT.armor.value;
   const armorNum   = col(armorOwned ? C.gray : C.byellow + C.bold, '[5]');
   const armorName  = padR(EQUIPMENT.armor.name, 10);
   const armorPrice = col(armorOwned ? C.gray : C.bgreen, armorOwned ? ' owned' : `$${EQUIPMENT.armor.price}`);
+
+  // Compact grenade row: [6]F $300 0/2  [7]S $300 0/2  [8]! $200 0/2
+  const grenadeRow = GRENADE_SLOTS.map((t, i) => {
+    const g   = GRENADES[t];
+    const cnt = (me.grenades && me.grenades[t]) || 0;
+    const full = cnt >= 2;
+    const label = { frag: 'F', smoke: 'S', flash: '!' }[t];
+    const num = col(full ? C.gray : C.byellow + C.bold, `[${6 + i}]${label}`);
+    const price = col(full ? C.gray : C.bgreen, full ? 'max' : `$${g.price}`);
+    return `${num} ${price} ${col(C.gray + C.dim, cnt + '/2')}`;
+  }).join('  ');
 
   return [
     col(C.gray, ' ' + '─'.repeat(12) + ' SHOP ' + '─'.repeat(15)) + col(C.gray + C.dim, ' [B] close'),
@@ -340,7 +436,8 @@ function buildBuyRows(me) {
     weaponLine('rifle', 3),
     weaponLine('awp',   4),
     padR(` ${armorNum} ${armorOwned ? col(C.gray, armorName) : armorName} ${armorPrice}`, HUD_W),
-    padR(` ${col(C.gray, 'Budget')} ${col(C.bgreen + C.bold, '$' + me.money)}  ${col(C.gray, '2-4 weapon  5 armor  ·  [B]')}`, HUD_W),
+    padR(` ${grenadeRow}`, HUD_W),
+    padR(` ${col(C.gray, 'Budget')} ${col(C.bgreen + C.bold, '$' + me.money)}  ${col(C.gray, '2-5 equip  6-8 util')}`, HUD_W),
   ];
 }
 
@@ -414,7 +511,7 @@ function renderFrame(state, myId, pingInfo = null) {
   }
 
   out.push('+' + H.repeat(MAP_INNER) + '+' + H.repeat(HUD_W) + '+');
-  out.push(col(C.gray, ' WASD/QE move  SPACE shoot  R reload  1-4 weapon  B shop  TAB stats  F plant/defuse  ^C quit') + `${E}[K`);
+  out.push(col(C.gray, ' WASD/QE move  SPACE shoot  G throw  H cycle-util  R reload  1-4 weapon  B shop  F plant  ^C quit') + `${E}[K`);
   out.push(`${E}[J`);
 
   process.stdout.write(out.join('\n'));
