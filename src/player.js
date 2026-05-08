@@ -40,7 +40,10 @@ function createPlayer({ team, name, spawn, spawnIdx = 0, weapon = 'pistol' }) {
 
     // === Weapons & Ammo ===
     weapon,                              // Current weapon key
-    ammo: { current: w.magazine, reserve: w.reserve }, // Magazine + reserve
+    ammo: { current: w.magazine, reserve: w.reserve }, // Active weapon magazine + reserve
+    ammoStore: Object.fromEntries(       // Per-weapon ammo tracker (prevents free reload on switch)
+      Object.entries(WEAPONS).map(([k, wk]) => [k, { current: wk.magazine, reserve: wk.reserve }])
+    ),
     inventory: { pistol: true, smg: false, rifle: false, awp: false }, // Owned weapons
     lastShotAt: 0,                       // Timestamp for fire rate limiting
     reloadingUntil: 0,                   // Timestamp when reload finishes
@@ -90,7 +93,10 @@ function resetForRound(player, map) {
   // Clear bomb
   player.hasBomb = false;
 
-  // Reset ammo to full magazine
+  // Reset all per-weapon ammo stores to full
+  for (const [key, wk] of Object.entries(WEAPONS)) {
+    player.ammoStore[key] = { current: wk.magazine, reserve: wk.reserve };
+  }
   const w = WEAPONS[player.weapon];
   player.ammo = { current: w.magazine, reserve: w.reserve };
 }
@@ -113,10 +119,10 @@ function setWeapon(player, weaponKey) {
     return false;
   }
 
-  // Switch weapon and refill ammo
+  // Save current weapon's ammo state, restore the target weapon's ammo state
+  player.ammoStore[player.weapon] = { ...player.ammo };
   player.weapon = weaponKey;
-  const w = WEAPONS[weaponKey];
-  player.ammo = { current: w.magazine, reserve: w.reserve };
+  player.ammo = { ...player.ammoStore[weaponKey] };
   return true;
 }
 

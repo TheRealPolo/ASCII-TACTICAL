@@ -123,6 +123,24 @@ function buildAimOverlay(state, me) {
   return { path, endHit, target, facing: me.facing };
 }
 
+// ─── Ping helpers ────────────────────────────────────────────────────────────
+const PING_BLOCKS = '▁▂▃▄▅▆▇█';
+
+function pingColor(ms) {
+  if (ms == null) return C.gray;
+  if (ms < 50)   return C.bgreen;
+  if (ms < 100)  return C.byellow;
+  if (ms < 200)  return C.yellow;
+  return C.bred;
+}
+
+function pingGraph(history) {
+  const recent = history.slice(-10);
+  if (!recent.length) return '';
+  const peak = Math.max(...recent, 1);
+  return recent.map(v => PING_BLOCKS[Math.min(7, Math.floor(v / peak * 8))]).join('');
+}
+
 // ─── Map renderer ────────────────────────────────────────────────────────────
 function renderMap(state, myId) {
   const { map, players, round } = state;
@@ -201,7 +219,7 @@ function objective(state, me) {
 //  Rows 14–18  last 5 events
 //  Row  19     objective / round result / match result
 //
-function buildHUD(state, myId) {
+function buildHUD(state, myId, pingInfo = null) {
   const me = state.players.find(p => p.id === myId);
   const tP  = state.players.filter(p => p.team === 'T');
   const ctP = state.players.filter(p => p.team === 'CT');
@@ -223,14 +241,25 @@ function buildHUD(state, myId) {
     const reload = me.reloadingUntil > state.now ? col(C.byellow, ' [R]') : '';
     rows.push(padR(` ${col(C.gray, 'AR')} ${bar(me.armor, 100, 8, C.bcyan)} ${col(C.bcyan, String(me.armor).padStart(3))}  ${col(C.byellow, w.name)}${reload}`, HUD_W));
 
-    rows.push(padR(` ${col(C.gray, 'AMMO')} ${col(C.bwhite + C.bold, me.ammo.current + '/' + me.ammo.reserve)}  ${col(C.gray, 'CASH')} ${col(C.bgreen + C.bold, '$' + me.money)}`, HUD_W));
+    const pingDisp = pingInfo != null
+      ? `  ${col(pingColor(pingInfo.ping), '●')} ${col(C.gray, pingInfo.ping + 'ms')}`
+      : '';
+    rows.push(padR(` ${col(C.gray, 'AMMO')} ${col(C.bwhite + C.bold, me.ammo.current + '/' + me.ammo.reserve)}  ${col(C.gray, 'CASH')} ${col(C.bgreen + C.bold, '$' + me.money)}${pingDisp}`, HUD_W));
   } else {
     rows.push(padR(col(C.gray, '  (spectating)'), HUD_W));
     rows.push(''); rows.push(''); rows.push('');
   }
 
   // ── Scoreboard ────────────────────────────────────────────────────────────
-  rows.push(col(C.gray, ' ' + '-'.repeat(8) + ' SCOREBOARD ' + '-'.repeat(17)));
+  if (pingInfo && pingInfo.history.length > 0) {
+    const graph    = pingGraph(pingInfo.history);
+    const graphLen = graph.length + 1; // +1 space
+    const dashes   = Math.max(0, 17 - graphLen);
+    rows.push(col(C.gray, ' ' + '-'.repeat(8) + ' SCOREBOARD ' + '-'.repeat(dashes)) +
+              ' ' + col(pingColor(pingInfo.ping), graph));
+  } else {
+    rows.push(col(C.gray, ' ' + '-'.repeat(8) + ' SCOREBOARD ' + '-'.repeat(17)));
+  }
 
   rows.push(padR(col(C.bred + C.bold, ' TERRORISTS'), HUD_W));
   const showT = tP.slice(0, 3);
@@ -301,17 +330,17 @@ function buildBuyRows(me) {
   }
 
   const armorOwned = me.armor >= EQUIPMENT.armor.value;
-  const armorNum   = col(armorOwned ? C.gray : C.byellow + C.bold, '[4]');
+  const armorNum   = col(armorOwned ? C.gray : C.byellow + C.bold, '[5]');
   const armorName  = padR(EQUIPMENT.armor.name, 10);
   const armorPrice = col(armorOwned ? C.gray : C.bgreen, armorOwned ? ' owned' : `$${EQUIPMENT.armor.price}`);
 
   return [
     col(C.gray, ' ' + '─'.repeat(12) + ' SHOP ' + '─'.repeat(15)) + col(C.gray + C.dim, ' [B] close'),
-    weaponLine('smg',   1),
-    weaponLine('rifle', 2),
-    weaponLine('awp',   3),
+    weaponLine('smg',   2),
+    weaponLine('rifle', 3),
+    weaponLine('awp',   4),
     padR(` ${armorNum} ${armorOwned ? col(C.gray, armorName) : armorName} ${armorPrice}`, HUD_W),
-    padR(` ${col(C.gray, 'Budget')} ${col(C.bgreen + C.bold, '$' + me.money)}  ${col(C.gray, '1-4 buy  ·  [B] close')}`, HUD_W),
+    padR(` ${col(C.gray, 'Budget')} ${col(C.bgreen + C.bold, '$' + me.money)}  ${col(C.gray, '2-4 weapon  5 armor  ·  [B]')}`, HUD_W),
   ];
 }
 
@@ -333,7 +362,7 @@ function applyStatsOverlay(hudRows, state, myId) {
 }
 
 // ─── Full frame ───────────────────────────────────────────────────────────────
-function renderFrame(state, myId) {
+function renderFrame(state, myId, pingInfo = null) {
   const { round, score } = state;
   const phaseName = { buy: 'BUY', combat: 'COMBAT', resolve: 'RESULT' }[round.phase] || round.phase;
 
@@ -352,7 +381,7 @@ function renderFrame(state, myId) {
   const cTotal = state.players.filter(p => p.team === 'CT').length;
 
   const mapRows = renderMap(state, myId);
-  const hudRows = buildHUD(state, myId);
+  const hudRows = buildHUD(state, myId, pingInfo);
 
   if (me && me.buyMenuOpen) {
     const buy = buildBuyRows(me);
@@ -455,4 +484,70 @@ function renderLobby(lobby, myId) {
   process.stdout.write(out.join('\n'));
 }
 
-module.exports = { renderFrame, renderLobby, clearAndHome };
+// ─── Global Rooms browser ─────────────────────────────────────────────────────
+function renderRooms(rooms, selectedIdx, mmHost, mmPort) {
+  const W = MAP_INNER + 1 + HUD_W; // 78
+  const H = '=', V = '|';
+
+  const out = [home()];
+  out.push('+' + H.repeat(W) + '+');
+  out.push(V + padR(col(C.bwhite + C.bold, '  ASCII-TACTICAL  |  GLOBAL ROOMS'), W) + V);
+  out.push('+' + H.repeat(W) + '+');
+
+  // Column widths
+  const COL_NAME    = 28;
+  const COL_PLAYERS = 10;
+  const COL_STATUS  = 10;
+
+  const header = col(C.gray,
+    '  ' +
+    'ROOM'.padEnd(COL_NAME) +
+    'PLAYERS'.padEnd(COL_PLAYERS) +
+    'STATUS'.padEnd(COL_STATUS)
+  );
+  out.push(V + padR(header, W) + V);
+  out.push(V + col(C.gray, '  ' + '─'.repeat(W - 4)) + '  ' + V);
+
+  const MAX_VISIBLE = 12;
+  const start = Math.max(0, selectedIdx - Math.floor(MAX_VISIBLE / 2));
+  const slice = rooms.slice(start, start + MAX_VISIBLE);
+
+  if (slice.length === 0) {
+    out.push(V + padR(col(C.gray, '  No rooms available — be the first to host!'), W) + V);
+    out.push(V + padR(col(C.gray, '  node server.js --mm ' + mmHost + ':' + mmPort + ' --name "My Room"'), W) + V);
+  } else {
+    for (let i = 0; i < slice.length; i++) {
+      const r   = slice[i];
+      const idx = start + i;
+      const sel = idx === selectedIdx;
+
+      const phaseColor = r.phase === 'lobby' ? C.bgreen : r.phase === 'combat' ? C.bred : C.byellow;
+      const cursor     = sel ? col(C.byellow + C.bold, '> ') : '  ';
+      const nameStr    = sel
+        ? col(C.bwhite + C.bold, truncR(r.name, COL_NAME))
+        : col(C.white,           truncR(r.name, COL_NAME));
+      const playersStr = col(
+        r.players >= r.maxPlayers ? C.bred : C.bgreen,
+        `${r.players}/${r.maxPlayers}`.padEnd(COL_PLAYERS)
+      );
+      const statusStr  = col(phaseColor, r.phase.padEnd(COL_STATUS));
+      const hostStr    = col(C.gray, `  ${r.host}:${r.port}`);
+
+      const line = cursor + nameStr + playersStr + statusStr + hostStr;
+      out.push(V + padR(line, W) + V);
+    }
+  }
+
+  out.push(V + ' '.repeat(W) + V);
+  out.push('+' + H.repeat(W) + '+');
+
+  const hint = col(C.gray, '  W/S or ↑/↓ navigate   ENTER join   R refresh   ^C quit') +
+               col(C.gray, `   MM: ${mmHost}:${mmPort}`);
+  out.push(V + padR(hint, W) + V);
+  out.push('+' + H.repeat(W) + '+');
+  out.push(`${E}[J`);
+
+  process.stdout.write(out.join('\n'));
+}
+
+module.exports = { renderFrame, renderLobby, renderRooms, clearAndHome };

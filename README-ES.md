@@ -1,6 +1,6 @@
 # ASCII-TACTICAL
 
-Un **juego multijugador LOCAL** de disparos tácticos en tiempo real que se ejecuta completamente en tu terminal. Dos equipos, una bomba, sin piedad.
+Un **juego multijugador de disparos tácticos** en tiempo real que se ejecuta completamente en tu terminal. Dos equipos, una bomba, sin piedad. Juega **localmente en LAN** o **globalmente por internet** con descubrimiento automático de salas.
 
 ```
 ┌──────────────────────────────┬─────────────────────────────────────────────┐
@@ -50,6 +50,8 @@ No se necesita `npm install` — cero dependencias externas.
 
 ## Ejecutar el juego
 
+### Opción A: Juego local (LAN)
+
 **1. Inicia el servidor** (una ventana de terminal):
 
 ```bash
@@ -60,22 +62,49 @@ node server.js
 **2. Conecta cada jugador** (una terminal aparte por jugador):
 
 ```bash
-node index.js [host] [nombre] [equipo]
+node index.js localhost Alice T
+node index.js localhost Bob CT
 ```
+
+### Opción B: Juego global (Multijugador por internet)
+
+**1. Inicia el hub de matchmaking** (en un servidor público, una sola vez):
+
+```bash
+node matchmaking.js
+# o: node matchmaking.js <puerto>   (default: 7776)
+```
+
+**2. Hospeda una sala de juego** (cualquier jugador con IP pública):
+
+```bash
+node server.js 7777 --mm mm.tudominio.com --name "Mi Sala"
+```
+
+**3. Únete vía navegador de salas** (en cualquier máquina con internet):
+
+```bash
+node index.js --mm mm.tudominio.com Alice T
+```
+
+Muestra todas las salas en vivo. Navega con `W/S` o `↑/↓`, presiona `ENTER` para entrar, `R` para refrescar, `^C` para salir.
+
+### Conexión directa (IP explícita)
+
+Si conoces la IP del servidor de juego:
+
+```bash
+node index.js 192.168.1.100 Alice T
+```
+
+### Argumentos
 
 | Argumento | Defecto     | Opciones              |
 |-----------|-------------|-----------------------|
 | `host`    | `localhost` | cualquier IP o nombre |
-| `nombre`  | aleatorio   | cualquier texto       |
+| `--mm`    | deshabilitado| servidor matchmaking  |
+| `nombre`  | `Jugador`   | cualquier texto       |
 | `equipo`  | `auto`      | `T`, `CT`, `auto`     |
-
-**Ejemplos:**
-
-```bash
-node index.js localhost Alice T
-node index.js localhost Bob CT
-node index.js 197.000.00.0 Charlie auto
-```
 
 El lobby de la partida inicia una cuenta atrás cuando hay 2+ jugadores conectados y se lanza automáticamente.
 
@@ -165,11 +194,12 @@ La cobertura bloquea tanto el movimiento como la línea de vista.
 ```
 ASCII-TACTICAL/
 ├── server.js          # Servidor de juego — estado autorizado, puerto 7777
+├── matchmaking.js     # Hub descubrimiento de salas — puerto 7776 (opcional, para juego global)
 ├── index.js           # Cliente — UI de terminal e entrada
 └── src/
     ├── game.js        # Lógica de ronda, condiciones de victoria, entrada de jugador
     ├── combat.js      # Disparos, daño, línea de vista (Bresenham)
-    ├── render.js      # Renderizador de terminal ANSI, diseño HUD
+    ├── render.js      # Renderizador de terminal ANSI, diseño HUD, navegador de salas
     ├── map.js         # Datos de mapa y consultas espaciales
     ├── player.js      # Factory de jugador y estado
     ├── config.js      # Parámetros de balance (armas, economía, tiempo)
@@ -184,11 +214,69 @@ El servidor transmite el estado completo del juego a todos los clientes cada **1
 
 ---
 
+## Multijugador global (Matchmaking)
+
+Para **multijugador en internet**, usa el servidor de matchmaking opcional:
+
+### Cómo funciona
+
+1. **Hub de Matchmaking** (`matchmaking.js`) se ejecuta en una IP pública (ej. VPS, servidor cloud)
+   - Puerto: 7776 (configurable)
+   - Mantiene una **lista en vivo de salas de juego activas**
+   - Los servidores de juego se registran con sus detalles (nombre, conteo de jugadores, estado)
+   - Los servidores envían **latido cada 10 segundos** — las salas se vuelven obsoletas después de 35s sin latido
+
+2. **Servidores de juego** se registran en el hub de matchmaking:
+   ```bash
+   node server.js 7777 --mm matchmaking.tudominio.com --name "Sala de torneo 1"
+   ```
+   - Funciona incluso detrás de NAT (matchmaking ve la IP de conexión)
+   - Se registra automáticamente de nuevo en reconexión
+
+3. **Jugadores** exploran salas disponibles:
+   ```bash
+   node index.js --mm matchmaking.tudominio.com Alice T
+   ```
+   - Lista de salas en vivo muestra: nombre, conteo de jugadores, fase actual (lobby/combate)
+   - Navega con `W/S` o flechas, `ENTER` para entrar
+   - Al seleccionar, el cliente se desconecta de matchmaking y se conecta directamente al servidor de juego
+
+### Por qué este diseño
+
+- **Desacoplado**: Los servidores de juego no dependen del servidor de matchmaking para ejecutarse — si MM cae, los juegos activos continúan
+- **Escalable**: Múltiples servidores de juego pueden registrarse con un hub de matchmaking
+- **Simple**: Sin lógica compleja de relé o proxy — los jugadores se conectan directamente al servidor de juego
+- **Resiliente**: Los servidores se reconectan automáticamente a matchmaking si el hub se reinicia
+
+---
+
 ## Desarrollo
 
-MIRA EL README.md EN INGLÉS.
+### Configuración de desarrollo
 
-Un desarrollador debería saber inglés técnico.
+No se requiere paso de compilación. Solo edita el código y reinicia el servidor.
+
+**Juego local:**
+```bash
+# Terminal 1: Servidor
+nodemon server.js
+
+# Terminal 2+: Cliente(s)
+node index.js localhost Alice T
+```
+
+**Testing de multijugador global (en localhost):**
+```bash
+# Terminal 1: Hub de matchmaking
+node matchmaking.js
+
+# Terminal 2: Servidor de juego (se registra con MM)
+node server.js 7777 --mm localhost --name "Sala de desarrollo"
+
+# Terminal 3+: Clientes (exploran salas)
+node index.js --mm localhost Alice T
+node index.js --mm localhost Bob CT
+```
 
 ---
 
@@ -199,6 +287,14 @@ MIT
 ---
 
 ## Changelog
+
+### BETAv0.3 — Multijugador global (Matchmaking)
+- Nuevo servidor de matchmaking (`matchmaking.js`) para descubrimiento de salas en tiempo real
+- Los servidores de juego se registran automáticamente con `--mm <host>`
+- Navegador visual de salas en vivo con selección por teclado (`W/S`, `ENTER`)
+- Sistema de latido (heartbeat) cada 10s para salas activas
+- Salas obsoletas se limpian automáticamente después de 35s sin latido
+- Conexión directa aún funciona para juego local (backward compatible)
 
 ### BETAv0.3 — Tienda mejorada y armas de CS
 - Se reemplazaron las armas genéricas por el arsenal estilo CS: **Glock-18** (gratis), **MP5-SD**, **AK-47**, **AWP**

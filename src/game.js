@@ -166,12 +166,12 @@ function handlePlayerKey(state, playerId, str, key) {
     return;
   }
 
-  // Buy menu shortcuts (1-4 = weapons/armor, B closes)
+  // Buy menu shortcuts — keys match weapon slots: 2=SMG, 3=Rifle, 4=AWP, 5=Armor
   if (player.buyMenuOpen) {
-    if (str === '1') return buy(state, player, 'smg');
-    if (str === '2') return buy(state, player, 'rifle');
-    if (str === '3') return buy(state, player, 'awp');
-    if (str === '4') return buy(state, player, 'armor');
+    if (str === '2') return buy(state, player, 'smg');
+    if (str === '3') return buy(state, player, 'rifle');
+    if (str === '4') return buy(state, player, 'awp');
+    if (str === '5') return buy(state, player, 'armor');
   }
 
   if (!player.alive) {
@@ -467,6 +467,10 @@ function handleDefuseProgress(state) {
     // Defuse progress is lost if player dies or moves away from bomb
     if (!p.alive || p.pos.x !== state.round.bomb.x || p.pos.y !== state.round.bomb.y) {
       p.defusingUntil = 0;
+      if (state.round.bomb.defuser === p.id) {
+        state.round.bomb.defuser = null;
+        state.round.bomb.defuseStart = 0;
+      }
       continue;
     }
 

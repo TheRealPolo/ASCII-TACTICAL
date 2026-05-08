@@ -169,7 +169,8 @@ function rayCastShoot(shooter, dx, dy, players, map, range) {
     // Check if ray hits a player
     for (const p of players) {
       if (!p.alive) continue;
-      if (p.id === shooter.id) continue; // Don't hit self
+      if (p.id === shooter.id) continue;       // Don't hit self
+      if (p.team === shooter.team) continue;   // Bullets pass through teammates
       if (p.pos.x === x && p.pos.y === y) {
         return { hit: 'enemy', target: p, x, y };
       }
