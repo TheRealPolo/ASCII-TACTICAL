@@ -23,10 +23,11 @@ Inspirado en Counter-Strike. Construido con Node.js puro sin dependencias extern
 - **Mecánicas de bomba** — plantar en sitio A o B, desactivar antes de detonación
 - **Rondas en tres fases** — Compra → Combate → Resolución, primero a 9 gana (mejor de 16)
 - **Sistema de economía** — gana dinero de bajas y objetivos, gástalo en armas y equipamiento
-- **Visibilidad** — raycast de Bresenham; muros y cobertura bloquean disparos
+- **Granadas y utilidades** — Frag (explosiva), Smoke (bloquea visión), Flash (ciega enemigos)
+- **Visibilidad** — raycast de Bresenham; muros, cobertura y humo bloquean disparos
 - **Movimiento en 8 direcciones** — el posicionamiento táctico importa
 - **Mapa ASCII** — diseño táctico 30×20 con dos sitios de bomba, cobertura y zonas de agua
-- **HUD en vivo** — panel de estadísticas en tiempo real con dinero, salud, armadura, historial de bajas y marcador
+- **HUD en vivo** — panel de estadísticas en tiempo real con dinero, salud, armadura, granadas, historial de bajas y marcador
 
 ---
 
@@ -117,10 +118,13 @@ El lobby de la partida inicia una cuenta atrás cuando hay 2+ jugadores conectad
 | `W A S D` | Movimiento (direcciones cardinales)         |
 | `Q / E`   | Girar vista (8 direcciones)                 |
 | `Space`   | Disparo                                     |
+| `G`       | Lanzar granada (fase combate)               |
+| `H`       | Ciclar tipo de granada                      |
 | `R`       | Recarga                                     |
 | `F`       | Plantar bomba (T en A/B) / Desactivar (CT)  |
 | `B`       | Alternar menú de compra (solo fase compra)  |
 | `1–5`     | Comprar objeto o cambiar arma               |
+| `6–8`     | Comprar granada en el menú                  |
 | `Tab`     | Alternar marcador                           |
 | `Ctrl+C`  | Salir                                       |
 
@@ -169,24 +173,39 @@ El dinero tiene un tope de **$16,000**.
 - **AWP** inflige 150 de daño, suficiente para matar de un disparo incluso con armadura completa.
 - **Chaleco** absorbe 50% del daño entrante (hasta 50 puntos).
 
+### Granadas y utilidades
+
+| Slot | Objeto             | Costo   | Efecto                                       | Límite |
+|------|-------------------|---------|----------------------------------------------|--------|
+| 6    | Granada Frag       | $300    | Explosión (radio 3) — 80→20 daño escalado    | 2      |
+| 7    | Granada Smoke      | $300    | Bloquea visión (radio 2) — dura 8s           | 2      |
+| 8    | Granada Flash      | $200    | Ciega enemigos (radio 4, 0.5–2s)              | 2      |
+
+- **Granada Frag** detona después de **2 segundos**. El daño escala por distancia (máximo en el centro, mínimo en el borde). Mata a todos en rango.
+- **Granada Smoke** crea una nube que **bloquea disparos y línea de vista**. Los muros también bloquean la propagación del humo. Persiste por 8 segundos.
+- **Granada Flash** detona después de **1.5 segundos**. Ciega a jugadores por 2s en el centro, escalando a 0.5s en el borde. Los muros bloquean el efecto del destello.
+- **Las granadas viajan** hasta 5–6 tiles en tu dirección de mira, deteniéndose antes de muros. Selecciona tipo con `H`, lanza con `G` durante combate.
+
 ---
 
 ## Leyenda del mapa
 
-| Símbolo | Significado     |
-|---------|-----------------|
-| `#`     | Muro            |
-| `.`     | Piso            |
-| `A`     | Sitio de bomba A|
-| `B`     | Sitio de bomba B|
-| `~`     | Agua (peligro)  |
-| `\|`    | Cobertura vert. |
-| `=`     | Cobertura horiz.|
-| `T`     | Jugador T       |
-| `C`     | Jugador CT      |
-| `*`     | Bomba           |
+| Símbolo | Significado          |
+|---------|----------------------|
+| `#`     | Muro                 |
+| `.`     | Piso                 |
+| `A`     | Sitio de bomba A     |
+| `B`     | Sitio de bomba B     |
+| `~`     | Agua (peligro)       |
+| `\|`    | Cobertura vertical   |
+| `=`     | Cobertura horizontal |
+| `T`     | Jugador T            |
+| `C`     | Jugador CT           |
+| `*`     | Bomba                |
+| `o`     | Granada (parpadeante)|
+| `░`     | Nube de humo         |
 
-La cobertura bloquea tanto el movimiento como la línea de vista.
+La cobertura bloquea el movimiento y línea de vista. El humo bloquea disparos y visibilidad. Los muros bloquean efectos de destello.
 
 ---
 
@@ -288,6 +307,16 @@ MIT
 ---
 
 ## Changelog
+
+### v1.1 — Granadas y utilidades
+- Añadidas **tres tipos de granadas**: Frag (explosiva, daño 80→20 escalado), Smoke (bloquea visión, 8s duración), Flash (ciega 0.5–2s)
+- **Las granadas persisten** en el estado del juego con indicadores visuales (`o` en mapa, parpadeando por tipo)
+- **Las nubes de humo** bloquean línea de vista, previniendo disparos y renderización de línea de apunte
+- **Efecto de destello** reemplaza todo el mapa con ruido estático para jugadores afectados
+- **Menú de compra** extendido con granadas (slots 6–8), máx. 2 por tipo, límite de carga reforzado
+- **HUD actualizado** para mostrar contadores de granadas junto a munición: formato `[F1][S0]![0]`
+- **Controles agregados**: `G` para lanzar, `H` para ciclar tipo de granada
+- **Las granadas viajan** hasta 5–6 tiles en dirección de mira antes de aterrizar; timers de mecha (1.5–2s) antes de detonación
 
 ### v1.0 — Multijugador global
 - Añadido **servidor de matchmaking** (`matchmaking.js`) para descubrimiento de salas en internet

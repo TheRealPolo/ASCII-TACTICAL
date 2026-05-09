@@ -23,10 +23,11 @@ Inspired by Counter-Strike. Built on pure Node.js with zero dependencies.
 - **Bomb mechanics** — plant at site A or B, defuse before detonation
 - **Three-phase rounds** — Buy → Combat → Resolve, first to 9 wins (best of 16)
 - **Economy system** — earn money from kills and objectives, spend it on weapons and gear
-- **Line-of-sight** — Bresenham raycasting; walls and cover block shots
+- **Grenades & Utilities** — Frag (explosive), Smoke (vision block), Flash (blind nearby enemies)
+- **Line-of-sight** — Bresenham raycasting; walls, cover, and smoke block shots
 - **8-directional movement and aiming** — tactical positioning matters
 - **ASCII map** — 30×20 tactical layout with two bomb sites, cover, and water hazards
-- **Live HUD** — real-time stats panel with money, health, armor, kill log, and scoreboard
+- **Live HUD** — real-time stats panel with money, health, armor, grenades, kill log, and scoreboard
 
 ---
 
@@ -117,10 +118,13 @@ The match lobby starts a countdown once 2+ players are connected and launches au
 | `W A S D` | Move (cardinal directions)                  |
 | `Q / E`   | Rotate facing (8 directions)                |
 | `Space`   | Shoot                                       |
+| `G`       | Throw grenade (combat phase)                |
+| `H`       | Cycle grenade type                          |
 | `R`       | Reload                                      |
 | `F`       | Plant bomb (T at site A/B) / Defuse (CT)    |
 | `B`       | Toggle buy menu (buy phase only)            |
 | `1–5`     | Buy item or switch weapon in buy menu       |
+| `6–8`     | Buy grenade in buy menu                     |
 | `Tab`     | Toggle scoreboard                           |
 | `Ctrl+C`  | Quit                                        |
 
@@ -169,24 +173,39 @@ Money is capped at **$16,000**.
 - **AWP** deals 150 damage, enough for a one-shot kill even through full armor.
 - **Armor Vest** absorbs 50% of incoming damage (up to 50 points).
 
+### Grenades & Utilities
+
+| Slot | Item           | Cost    | Effect                                   | Carry Limit |
+|------|----------------|---------|------------------------------------------|-------------|
+| 6    | Frag Grenade   | $300    | Explosion (radius 3) — 80→20 damage      | 2           |
+| 7    | Smoke Grenade  | $300    | Vision block (radius 2) — lasts 8s       | 2           |
+| 8    | Flash Grenade  | $200    | Blinds nearby enemies (radius 4, 0.5–2s) | 2           |
+
+- **Frag Grenade** detonates after **2 seconds**. Damage scales by distance (max at center, min at edge). Each impact kills within range.
+- **Smoke Grenade** creates a cloud that **blocks shots and line-of-sight**. Walls also block smoke spread. Persists for 8 seconds.
+- **Flash Grenade** detonates after **1.5 seconds**. Blinds players for 2s at center, scaling down to 0.5s at the edge. Walls block the flash effect.
+- **Grenades travel** up to 5–6 tiles in your facing direction, stopping before walls. Select your grenade type with `H`, throw with `G` during combat.
+
 ---
 
 ## Map Legend
 
-| Symbol | Meaning          |
-|--------|------------------|
-| `#`    | Wall             |
-| `.`    | Floor            |
-| `A`    | Bomb site A      |
-| `B`    | Bomb site B      |
-| `~`    | Water (hazard)   |
-| `|`    | Vertical cover   |
-| `=`    | Horizontal cover |
-| `T`    | Terrorist player |
-| `C`    | CT player        |
-| `*`    | Bomb             |
+| Symbol | Meaning            |
+|--------|---------------------|
+| `#`    | Wall                |
+| `.`    | Floor               |
+| `A`    | Bomb site A         |
+| `B`    | Bomb site B         |
+| `~`    | Water (hazard)      |
+| `\|`   | Vertical cover      |
+| `=`    | Horizontal cover    |
+| `T`    | Terrorist player    |
+| `C`    | CT player           |
+| `*`    | Bomb                |
+| `o`    | Grenade (blinking)  |
+| `░`    | Smoke cloud         |
 
-Cover blocks both movement and line-of-sight.
+Cover blocks both movement and line-of-sight. Smoke blocks shots and visibility. Walls block flash effects.
 
 ---
 
@@ -526,6 +545,16 @@ MIT
 ---
 
 ## Changelog
+
+### v1.1 — Grenades & Utilities
+- Added **three grenade types**: Frag (explosive, 80→20 damage scaling), Smoke (vision block, 8s duration), Flash (blinds for 0.5–2s)
+- **Grenades persist** in game state with visual indicators (`o` on map, blinking by type)
+- **Smoke clouds** block line-of-sight, preventing shots and aim-line rendering
+- **Flash blind effect** replaces the entire map with static noise for affected players
+- **Buy menu** extended with grenades (slots 6–8), max 2 per type, carry limit enforced
+- **HUD updated** to show grenade counts next to weapon ammo: `[F1][S0]![0]` format
+- **Controls** added: `G` to throw, `H` to cycle grenade type
+- **Grenades travel** up to 5–6 tiles in facing direction before landing; fuse timers (1.5–2s) before detonation
 
 ### v1.0 — Global Multiplayer
 - Added **matchmaking server** (`matchmaking.js`) for internet-wide room discovery
